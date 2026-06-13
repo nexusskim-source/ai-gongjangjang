@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>React 기초 예제 - 카운터 & 인사말</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+</head>
+<body class="bg-gradient-to-br from-slate-100 to-blue-100 min-h-screen">
+  <div id="root"></div>
+
+  <script type="text/babel">
+    // ========================================
+    // React Hooks 가져오기
+    // ========================================
+    const { useState } = React;
+
+    // ========================================
+    // 🎨 디자인 시스템 컴포넌트 (재사용 UI)
+    // ========================================
+
+    // 버튼 컴포넌트
+    function Button({ children, onClick, variant = "primary", className = "" }) {
+      const variants = {
+        primary: "bg-blue-600 hover:bg-blue-700 text-white",
+        secondary: "bg-gray-200 hover:bg-gray-300 text-gray-800",
+        danger: "bg-red-500 hover:bg-red-600 text-white",
+      };
+      return (
+        <button
+          onClick={onClick}
+          className={`px-4 py-2 rounded-lg font-semibold transition-colors ${variants[variant]} ${className}`}
+        >
+          {children}
+        </button>
+      );
+    }
+
+    // 카드 컴포넌트
+    function Card({ title, children }) {
+      return (
+        <div className="bg-white rounded-2xl shadow-lg p-6 w-full">
+          {title && <h2 className="text-xl font-bold text-gray-800 mb-4">{title}</h2>}
+          {children}
+        </div>
+      );
+    }
+
+    // ========================================
+    // 📄 기능 컴포넌트
+    // ========================================
+
+    // 카운터 예제: useState 로 숫자 상태 관리
+    function Counter() {
+      const [count, setCount] = useState(0);
+
+      return (
+        <Card title="① 카운터 예제">
+          <p className="text-center text-6xl font-bold text-blue-600 my-4">{count}</p>
+          <div className="flex justify-center gap-3">
+            <Button variant="secondary" onClick={() => setCount(count - 1)}>− 감소</Button>
+            <Button variant="danger" onClick={() => setCount(0)}>리셋</Button>
+            <Button variant="primary" onClick={() => setCount(count + 1)}>+ 증가</Button>
+          </div>
+        </Card>
+      );
+    }
+
+    // 인사말 예제: useState 로 입력값 상태 관리
+    function Greeting() {
+      const [name, setName] = useState("");
+
+      return (
+        <Card title="② 인사말 예제">
+          <input
+            type="text"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="이름을 입력하세요"
+            className="w-full border border-gray-300 rounded-lg px-4 py-2 mb-4 focus:outline-none focus:ring-2 focus:ring-blue-400"
+          />
+          <p className="text-center text-lg text-gray-700">
+            {name
+              ? <span><span className="font-bold text-blue-600">{name}</span>님, 안녕하세요! 👋</span>
+              : "위에 이름을 입력해 보세요."}
+          </p>
+        </Card>
+      );
+    }
+
+    // ========================================
+    // 🚀 App - 전체 화면 구성
+    // ========================================
+    function App() {
+      return (
+        <div className="min-h-screen flex flex-col items-center justify-center p-4">
+          <h1 className="text-3xl font-bold text-gray-800 mb-2">React 기초 예제</h1>
+          <p className="text-gray-500 mb-8">useState 로 만든 카운터와 인사말</p>
+          <div className="w-full max-w-md space-y-6">
+            <Counter />
+            <Greeting />
+          </div>
+          <footer className="mt-8 text-sm text-gray-400">CDN 기반 React 18 + Tailwind CSS</footer>
+        </div>
+      );
+    }
+
+    // ========================================
+    // 렌더링
+    // ========================================
+    ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+  </script>
+</body>
+</html>

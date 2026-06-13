@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>React 입문 — state가 바뀌면 화면이 다시 그려져요</title>
+
+    <!-- Tailwind CSS (CDN) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- React 18 + ReactDOM (CDN, 빌드 도구 없이 사용) -->
+    <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+
+    <!-- Babel: 브라우저에서 JSX(<div> 같은 문법)를 바로 번역해줘요 -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  </head>
+
+  <body class="min-h-screen bg-slate-950 text-slate-100">
+    <div id="root"></div>
+
+    <!-- 여기서부터 React 코드 (type="text/babel" 이라서 JSX를 쓸 수 있어요) -->
+    <script type="text/babel">
+      // ========================================
+      // React Hooks 꺼내오기
+      // useState = "상태(state)"를 만드는 도구.
+      // ========================================
+      const { useState } = React;
+
+      // ========================================
+      // 🚀 App 컴포넌트
+      //   - 02에서는 document.querySelector 로 직접 DOM을 바꿨어요.
+      //   - React에서는 "상태(count)"만 바꾸면, 화면은 알아서 다시 그려져요.
+      // ========================================
+      function App() {
+        // 👇 이게 바로 "상태(state)" 예요.
+        //    count        = 지금 값
+        //    setCount(...) = 값을 바꾸는 함수 (이걸 부르면 화면이 다시 그려짐!)
+        const [count, setCount] = useState(0);
+
+        // 숫자에 따라 표정을 살짝 바꿔서 "변화"를 눈으로 느끼게 해요.
+        const face = count > 0 ? "😄" : count < 0 ? "😢" : "🙂";
+
+        return (
+          <main className="mx-auto max-w-3xl px-6 py-10">
+            {/* ── 제목 / 한 줄 설명 (02와 같은 어조) ── */}
+            <h1 className="text-3xl font-black">React 입문 — 카운터</h1>
+            <p className="mt-2 text-slate-300">
+              React는 <span className="font-semibold text-purple-300">state(상태)</span>가 바뀌면
+              화면이 <span className="font-semibold text-purple-300">자동으로 다시 그려져요.</span>
+            </p>
+            <p className="mt-1 text-sm text-slate-400">
+              02에서는 JS로 직접 화면을 고쳤지만, 여기서는 <code className="text-slate-200">count</code> 값만 바꾸면 끝이에요.
+            </p>
+
+            {/* ── 카드: 02와 동일한 카드 스타일 ── */}
+            <section className="mt-8 rounded-2xl border border-slate-800 bg-slate-900/40 p-6">
+              <h2 className="text-xl font-extrabold">버튼을 눌러보세요</h2>
+              <p className="mt-2 text-slate-300">
+                아래 <span className="font-semibold">+ / −</span> 버튼이 상태(count)를 바꿔요.
+              </p>
+
+              {/* 지금 상태(count)를 그대로 보여주는 박스 = 02의 보라색 dancer 자리 */}
+              <div className="mt-6 flex flex-col items-center justify-center gap-3">
+                <div
+                  className="flex h-28 w-28 items-center justify-center rounded-2xl bg-purple-600 text-5xl shadow-lg transition-transform"
+                  title="이 숫자는 state(count) 값이에요"
+                >
+                  {/* 👇 여기 {count} 가 화면에 "다시 그려지는" 바로 그 부분! */}
+                  {count}
+                </div>
+                <span className="text-3xl" aria-hidden="true">{face}</span>
+              </div>
+
+              {/* 버튼들: 02의 보라 액센트 톤을 이어받음 */}
+              <div className="mt-7 flex items-center justify-center gap-3">
+                {/* − 버튼 */}
+                <button
+                  onClick={() => setCount(count - 1)}
+                  className="rounded-xl bg-slate-800 px-5 py-2 text-xl font-bold text-slate-100 hover:bg-slate-700"
+                  aria-label="1 줄이기"
+                >
+                  −
+                </button>
+
+                {/* 초기화 버튼 */}
+                <button
+                  onClick={() => setCount(0)}
+                  className="rounded-xl border border-slate-700 px-4 py-2 text-sm font-semibold text-slate-300 hover:bg-slate-800"
+                >
+                  초기화
+                </button>
+
+                {/* + 버튼 (메인 액센트) */}
+                <button
+                  onClick={() => setCount(count + 1)}
+                  className="rounded-xl bg-purple-600 px-5 py-2 text-xl font-bold text-white hover:bg-purple-500"
+                  aria-label="1 늘리기"
+                >
+                  +
+                </button>
+              </div>
+
+              <p className="mt-6 text-sm text-slate-400">
+                포인트: 버튼이 한 일은 <code className="text-slate-200">setCount(...)</code> 로
+                <span className="font-semibold text-slate-200"> 상태를 바꾼 것</span> 뿐이에요.
+                화면의 숫자와 표정은 React가 알아서 다시 그려줬어요.
+              </p>
+            </section>
+
+            {/* ── 02와 대비 설명 카드 ── */}
+            <section className="mt-6 rounded-2xl border border-slate-800 bg-slate-900/40 p-6">
+              <h2 className="text-xl font-extrabold">02랑 뭐가 달라졌나요?</h2>
+              <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
+                {/* 02 방식 */}
+                <div className="rounded-xl border border-slate-800 bg-black/30 p-4">
+                  <p className="text-sm font-semibold text-slate-300">02 (바닐라 JS)</p>
+                  <p className="mt-1 text-xs text-slate-400">내가 직접 화면(DOM)을 찾아서 고쳐요.</p>
+                  <pre className="mt-3 overflow-auto text-xs text-slate-200"><code>{`box.textContent = count;`}</code></pre>
+                </div>
+
+                {/* 03 방식 */}
+                <div className="rounded-xl border border-purple-900/60 bg-purple-950/20 p-4">
+                  <p className="text-sm font-semibold text-purple-200">03 (React)</p>
+                  <p className="mt-1 text-xs text-slate-400">상태만 바꾸면 화면은 React가 그려요.</p>
+                  <pre className="mt-3 overflow-auto text-xs text-slate-200"><code>{`setCount(count + 1);`}</code></pre>
+                </div>
+              </div>
+              <p className="mt-4 text-sm text-slate-400">
+                즉, <span className="font-semibold text-slate-200">"화면을 어떻게 고칠지"</span> 가 아니라
+                <span className="font-semibold text-slate-200"> "상태가 무엇인지"</span>만 신경 쓰면 돼요.
+              </p>
+            </section>
+          </main>
+        );
+      }
+
+      // ========================================
+      // 화면에 그리기 (React 18 방식)
+      // ========================================
+      ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+    </script>
+  </body>
+</html>

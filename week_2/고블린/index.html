@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>만 나이 계산기</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    @keyframes fadeUp { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+    .fade-up { animation: fadeUp 0.35s ease-out; }
+  </style>
+</head>
+<body class="bg-slate-100">
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useMemo, useCallback } = React;
+
+    // ========================================
+    // 🧮 Date Utilities (timezone-safe, leap-year aware)
+    // ========================================
+    // 모든 날짜 계산은 UTC 정오 기준 timestamp로 처리하여
+    // DST/타임존으로 인한 하루 오차를 방지한다.
+
+    const STORAGE_KEY = "age-calculator-state-v1";
+
+    // 해당 연/월의 실제 일수 (월: 1~12). 윤년 자동 반영.
+    function daysInMonth(year, month) {
+      return new Date(year, month, 0).getDate(); // month는 1-base, day=0 → 전달 말일
+    }
+
+    function isLeapYear(y) {
+      return (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0;
+    }
+
+    // 입력된 연/월/일이 실제로 존재하는 날짜인지 검증
+    function isValidYMD(y, m, d) {
+      if (!Number.isInteger(y) || !Number.isInteger(m) || !Number.isInteger(d)) return false;
+      if (y < 1 || y > 9999) return false;
+      if (m < 1 || m > 12) return false;
+      if (d < 1 || d > daysInMonth(y, m)) return false;
+      return true;
+    }
+
+    // UTC 정오 timestamp 생성 (날짜 비교 전용)
+    function utcNoon(y, m, d) {
+      return Date.UTC(y, m - 1, d, 12, 0, 0, 0);
+    }
+
+    // 두 날짜 사이의 일수 차이 (to - from)
+    function diffDays(fromYMD, toYMD) {
+      const a = utcNoon(fromYMD.y, fromYMD.m, fromYMD.d);
+      const b = utcNoon(toYMD.y, toYMD.m, toYMD.d);
+      return Math.round((b - a) / 86400000);
+    }
+
+    function todayYMD() {
+      const n = new Date();
+      return { y: n.getFullYear(), m: n.getMonth() + 1, d: n.getDate() };
+    }
+
+    function ymdToInput(ymd) {
+      if (!ymd) return "";
+      const mm = String(ymd.m).padStart(2, "0");
+      const dd = String(ymd.d).padStart(2, "0");
+      return `${ymd.y}-${mm}-${dd}`;
+    }
+
+    function inputToYMD(str) {
+      if (!str) return null;
+      const parts = str.split("-");
+      if (parts.length !== 3) return null;
+      const y = parseInt(parts[0], 10);
+      const m = parseInt(parts[1], 10);
+      const d = parseInt(parts[2], 10);
+      if (!isValidYMD(y, m, d)) return null;
+      return { y, m, d };
+    }
+
+    // ========================================
+    // 🎂 만 나이 / 부가정보 계산
+    // ========================================
+    // 만 나이: 기준일 기준으로 생일이 지났으면 (기준연 - 출생연),
+    // 아직 안 지났으면 거기서 1을 뺀다. 월/일 경계를 정확히 비교.
+    function calcKoreanAge(birth, ref) {
+      let age = ref.y - birth.y;
+      // 생일이 아직 안 지났으면 -1
+      if (ref.m < birth.m || (ref.m === birth.m && ref.d < birth.d)) {
+        age -= 1;
+      }
+      return age;
+    }
+
+    // 만 나이의 년/월/일 분해 (예: 30년 2개월 15일)
+    function calcAgeBreakdown(birth, ref) {
+      let years = ref.y - birth.y;
+      let months = ref.m - birth.m;
+      let days = ref.d - birth.d;
+
+      if (days < 0) {
+        months -= 1;
+        // 기준일의 "전 달" 말일 수를 빌려온다 (월말 경계 정확 처리)
+        let pm = ref.m - 1;
+        let py = ref.y;
+        if (pm === 0) { pm = 12; py -= 1; }
+        days += daysInMonth(py, pm);
+      }
+      if (months < 0) {
+        years -= 1;
+        months += 12;
+      }
+      return { years, months, days };
+    }
+
+    // 다음 생일까지 남은 일수 (윤년 2/29 출생자는 평년엔 3/1로 처리)
+    function calcNextBirthday(birth, ref) {
+      function resolveBirthdayInYear(year) {
+        let m = birth.m, d = birth.d;
+        if (m === 2 && d === 29 && !isLeapYear(year)) {
+          // 평년: 2/29 → 3/1로 간주
+          m = 3; d = 1;
+        }
+        return { y: year, m, d };
+      }
+
+      let target = resolveBirthdayInYear(ref.y);
+      let daysLeft = diffDays(ref, target);
+      if (daysLeft < 0) {
+        target = resolveBirthdayInYear(ref.y + 1);
+        daysLeft = diffDays(ref, target);
+      }
+      const isToday = daysLeft === 0;
+      return { daysLeft, target, isToday };
+    }
+
+    // ========================================
+    // 🐯 띠 (12간지) & ⭐ 별자리
+    // ========================================
+    const ZODIAC = [
+      { name: "원숭이띠", emoji: "🐵" }, // year % 12 === 0
+      { name: "닭띠", emoji: "🐔" },
+      { name: "개띠", emoji: "🐶" },
+      { name: "돼지띠", emoji: "🐷" },
+      { name: "쥐띠", emoji: "🐭" },
+      { name: "소띠", emoji: "🐮" },
+      { name: "호랑이띠", emoji: "🐯" },
+      { name: "토끼띠", emoji: "🐰" },
+      { name: "용띠", emoji: "🐲" },
+      { name: "뱀띠", emoji: "🐍" },
+      { name: "말띠", emoji: "🐴" },
+      { name: "양띠", emoji: "🐑" },
+    ];
+
+    function getZodiac(year) {
+      const idx = ((year % 12) + 12) % 12;
+      return ZODIAC[idx];
+    }
+
+    // 별자리 (양력 기준)
+    const HOROSCOPE = [
+      { name: "염소자리", emoji: "♑", endMonth: 1, endDay: 19 },
+      { name: "물병자리", emoji: "♒", endMonth: 2, endDay: 18 },
+      { name: "물고기자리", emoji: "♓", endMonth: 3, endDay: 20 },
+      { name: "양자리", emoji: "♈", endMonth: 4, endDay: 19 },
+      { name: "황소자리", emoji: "♉", endMonth: 5, endDay: 20 },
+      { name: "쌍둥이자리", emoji: "♊", endMonth: 6, endDay: 21 },
+      { name: "게자리", emoji: "♋", endMonth: 7, endDay: 22 },
+      { name: "사자자리", emoji: "♌", endMonth: 8, endDay: 22 },
+      { name: "처녀자리", emoji: "♍", endMonth: 9, endDay: 22 },
+      { name: "천칭자리", emoji: "♎", endMonth: 10, endDay: 23 },
+      { name: "전갈자리", emoji: "♏", endMonth: 11, endDay: 22 },
+      { name: "사수자리", emoji: "♐", endMonth: 12, endDay: 21 },
+      { name: "염소자리", emoji: "♑", endMonth: 12, endDay: 31 }, // 12/22~12/31
+    ];
+
+    function getHoroscope(m, d) {
+      for (const h of HOROSCOPE) {
+        if (m < h.endMonth || (m === h.endMonth && d <= h.endDay)) {
+          return h;
+        }
+      }
+      return HOROSCOPE[0];
+    }
+
+    function formatNum(n) {
+      return n.toLocaleString("ko-KR");
+    }
+
+    // ========================================
+    // 🎨 Design System Components
+    // ========================================
+    function Card({ children, className = "" }) {
+      return (
+        <div className={`bg-white rounded-2xl shadow-sm border border-slate-100 ${className}`}>
+          {children}
+        </div>
+      );
+    }
+
+    function Button({ children, variant = "primary", size = "md", onClick, disabled, className = "" }) {
+      const base = "inline-flex items-center justify-center font-semibold rounded-xl transition active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-offset-1";
+      const variants = {
+        primary: "bg-indigo-600 text-white hover:bg-indigo-700 focus:ring-indigo-400",
+        secondary: "bg-slate-100 text-slate-700 hover:bg-slate-200 focus:ring-slate-300",
+        ghost: "bg-transparent text-indigo-600 hover:bg-indigo-50 focus:ring-indigo-300",
+      };
+      const sizes = { sm: "px-3 py-1.5 text-sm", md: "px-4 py-2.5 text-sm", lg: "px-5 py-3 text-base" };
+      return (
+        <button
+          type="button"
+          onClick={onClick}
+          disabled={disabled}
+          className={`${base} ${variants[variant]} ${sizes[size]} ${className}`}
+        >
+          {children}
+        </button>
+      );
+    }
+
+    function Field({ label, children, hint }) {
+      return (
+        <label className="block">
+          <span className="block text-sm font-medium text-slate-600 mb-1.5">{label}</span>
+          {children}
+          {hint && <span className="block text-xs text-slate-400 mt-1">{hint}</span>}
+        </label>
+      );
+    }
+
+    function StatCard({ label, value, sub, accent = "indigo" }) {
+      const accents = {
+        indigo: "from-indigo-500 to-violet-500",
+        emerald: "from-emerald-500 to-teal-500",
+        rose: "from-rose-500 to-pink-500",
+        amber: "from-amber-500 to-orange-500",
+      };
+      return (
+        <Card className="p-4 sm:p-5 overflow-hidden relative">
+          <div className={`absolute inset-x-0 top-0 h-1 bg-gradient-to-r ${accents[accent]}`} />
+          <p className="text-xs sm:text-sm text-slate-500">{label}</p>
+          <p className="mt-1 text-xl sm:text-2xl font-bold text-slate-800 tabular-nums break-words">{value}</p>
+          {sub && <p className="mt-0.5 text-xs text-slate-400">{sub}</p>}
+        </Card>
+      );
+    }
+
+    // ========================================
+    // 📄 App
+    // ========================================
+    function App() {
+      const today = useMemo(() => todayYMD(), []);
+
+      // localStorage 복원
+      const initial = useMemo(() => {
+        try {
+          const raw = localStorage.getItem(STORAGE_KEY);
+          if (raw) {
+            const p = JSON.parse(raw);
+            return {
+              birth: p.birth || "",
+              ref: p.ref || ymdToInput(today),
+            };
+          }
+        } catch (e) { /* ignore */ }
+        return { birth: "", ref: ymdToInput(today) };
+      }, [today]);
+
+      const [birthStr, setBirthStr] = useState(initial.birth);
+      const [refStr, setRefStr] = useState(initial.ref);
+
+      // 저장
+      useEffect(() => {
+        try {
+          localStorage.setItem(STORAGE_KEY, JSON.stringify({ birth: birthStr, ref: refStr }));
+        } catch (e) { /* ignore */ }
+      }, [birthStr, refStr]);
+
+      const todayInput = ymdToInput(today);
+      const birth = inputToYMD(birthStr);
+      const ref = inputToYMD(refStr);
+
+      // 유효성 검증
+      let error = null;
+      if (birthStr && !birth) error = "올바르지 않은 생년월일입니다. 날짜를 다시 확인해 주세요.";
+      else if (refStr && !ref) error = "올바르지 않은 기준일입니다.";
+      else if (birth && birth.y > today.y) error = "생년월일이 미래입니다.";
+      else if (birth && ref && diffDays(birth, ref) < 0) error = "기준일이 생년월일보다 앞설 수 없습니다.";
+      // 생년월일이 오늘보다 미래인지 (기준일과 별개로) 체크
+      else if (birth && diffDays(birth, today) < 0 && (!ref || diffDays(birth, ref) >= 0)) {
+        // 기준일은 통과했지만 생일 자체가 오늘 이후면 안내 (단 기준일이 미래일 수도 있으니 ref 기준 통과면 허용)
+      }
+
+      const canCompute = birth && ref && !error;
+
+      const result = useMemo(() => {
+        if (!canCompute) return null;
+        const age = calcKoreanAge(birth, ref);
+        const breakdown = calcAgeBreakdown(birth, ref);
+        const totalDays = diffDays(birth, ref);
+        const totalWeeks = Math.floor(totalDays / 7);
+        const totalMonths = breakdown.years * 12 + breakdown.months;
+        const next = calcNextBirthday(birth, ref);
+        const zodiac = getZodiac(birth.y);
+        const horoscope = getHoroscope(birth.m, birth.d);
+        return { age, breakdown, totalDays, totalWeeks, totalMonths, next, zodiac, horoscope };
+      }, [canCompute, birthStr, refStr]);
+
+      const setToday = useCallback(() => setRefStr(todayInput), [todayInput]);
+      const reset = useCallback(() => { setBirthStr(""); setRefStr(todayInput); }, [todayInput]);
+
+      const refIsToday = refStr === todayInput;
+
+      return (
+        <div className="min-h-screen flex flex-col items-center px-4 py-8 sm:py-12">
+          <div className="w-full max-w-2xl">
+            {/* Header */}
+            <header className="text-center mb-6 sm:mb-8">
+              <div className="text-4xl mb-2">🎂</div>
+              <h1 className="text-2xl sm:text-3xl font-bold text-slate-800">만 나이 계산기</h1>
+              <p className="mt-1.5 text-sm text-slate-500">
+                생년월일과 기준일로 정확한 만 나이를 계산합니다
+              </p>
+            </header>
+
+            {/* 입력 */}
+            <Card className="p-5 sm:p-6 mb-5">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <Field label="생년월일">
+                  <input
+                    type="date"
+                    value={birthStr}
+                    max={todayInput}
+                    onChange={(e) => setBirthStr(e.target.value)}
+                    className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:border-indigo-400"
+                  />
+                </Field>
+                <Field label="기준일" hint={refIsToday ? "오늘 기준" : null}>
+                  <div className="flex gap-2">
+                    <input
+                      type="date"
+                      value={refStr}
+                      onChange={(e) => setRefStr(e.target.value)}
+                      className="flex-1 min-w-0 rounded-xl border border-slate-200 px-3 py-2.5 text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:border-indigo-400"
+                    />
+                    <Button variant="secondary" size="md" onClick={setToday} className="shrink-0">
+                      오늘
+                    </Button>
+                  </div>
+                </Field>
+              </div>
+
+              {error && (
+                <div className="mt-4 rounded-xl bg-rose-50 border border-rose-200 px-4 py-3 text-sm text-rose-700">
+                  ⚠️ {error}
+                </div>
+              )}
+
+              <div className="mt-4 flex justify-end">
+                <Button variant="ghost" size="sm" onClick={reset}>초기화</Button>
+              </div>
+            </Card>
+
+            {/* 결과 */}
+            {!birthStr && !error && (
+              <Card className="p-8 text-center text-slate-400">
+                <p className="text-sm">생년월일을 입력하면 결과가 표시됩니다.</p>
+              </Card>
+            )}
+
+            {result && (
+              <div className="space-y-5 fade-up">
+                {/* 메인 나이 */}
+                <Card className="p-6 sm:p-8 text-center bg-gradient-to-br from-indigo-600 to-violet-600 border-0">
+                  <p className="text-indigo-100 text-sm font-medium">만 나이</p>
+                  <p className="mt-1 text-5xl sm:text-6xl font-extrabold text-white tabular-nums">
+                    {result.age}<span className="text-2xl sm:text-3xl font-bold ml-1">세</span>
+                  </p>
+                  <p className="mt-2 text-indigo-100 text-sm">
+                    {result.breakdown.years}년 {result.breakdown.months}개월 {result.breakdown.days}일
+                  </p>
+                </Card>
+
+                {/* 부가 정보 */}
+                <div className="grid grid-cols-2 gap-3 sm:gap-4">
+                  <StatCard label="살아온 총 일수" value={`${formatNum(result.totalDays)}일`} accent="emerald" />
+                  <StatCard label="총 개월 수" value={`${formatNum(result.totalMonths)}개월`} sub={`약 ${formatNum(result.totalWeeks)}주`} accent="indigo" />
+                  <StatCard
+                    label="다음 생일까지"
+                    value={result.next.isToday ? "오늘! 🎉" : `D-${formatNum(result.next.daysLeft)}`}
+                    sub={result.next.isToday ? "생일을 축하합니다" : `${result.next.target.y}.${String(result.next.target.m).padStart(2,"0")}.${String(result.next.target.d).padStart(2,"0")}`}
+                    accent="rose"
+                  />
+                  <StatCard
+                    label="띠 · 별자리"
+                    value={`${result.zodiac.emoji} ${result.zodiac.name}`}
+                    sub={`${result.horoscope.emoji} ${result.horoscope.name}`}
+                    accent="amber"
+                  />
+                </div>
+
+                {/* 2/29 안내 */}
+                {birth.m === 2 && birth.d === 29 && (
+                  <p className="text-center text-xs text-slate-400">
+                    ※ 윤년(2월 29일) 출생자의 다음 생일은 평년에는 3월 1일로 계산됩니다.
+                  </p>
+                )}
+              </div>
+            )}
+
+            <footer className="mt-8 text-center text-xs text-slate-400">
+              입력값은 이 브라우저에 자동 저장됩니다 · 만 나이는 기준일에 생일이 지났는지를 반영합니다
+            </footer>
+          </div>
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+  </script>
+</body>
+</html>

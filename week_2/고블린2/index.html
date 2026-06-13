@@ -1,0 +1,517 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>D-day 카운터</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    @keyframes pulseGlow {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); }
+      50% { box-shadow: 0 0 0 8px rgba(239, 68, 68, 0); }
+    }
+    .dday-glow { animation: pulseGlow 1.8s ease-in-out infinite; }
+    @keyframes fadeInUp {
+      from { opacity: 0; transform: translateY(8px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .fade-in { animation: fadeInUp 0.25s ease-out both; }
+  </style>
+</head>
+<body class="bg-slate-100">
+  <div id="root"></div>
+
+  <script type="text/babel">
+    // ========================================
+    // React Hooks
+    // ========================================
+    const { useState, useEffect, useMemo, useCallback, useRef } = React;
+
+    // ========================================
+    // 날짜 유틸 (타임존/윤년/월말 안전)
+    //  - 핵심: 모든 날짜를 "로컬 자정"으로 정규화한 뒤
+    //    UTC 기준 일수 차이로 계산 -> DST/타임존 경계에서도 1일 오차 없음
+    // ========================================
+    const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+    // 'YYYY-MM-DD' 문자열 -> 로컬 자정 Date
+    function parseDateInput(str) {
+      if (!str) return null;
+      const [y, m, d] = str.split('-').map(Number);
+      if (!y || !m || !d) return null;
+      return new Date(y, m - 1, d); // 로컬 자정
+    }
+
+    // Date -> 'YYYY-MM-DD' (로컬 기준)
+    function toDateInput(date) {
+      const y = date.getFullYear();
+      const m = String(date.getMonth() + 1).padStart(2, '0');
+      const d = String(date.getDate()).padStart(2, '0');
+      return `${y}-${m}-${d}`;
+    }
+
+    // 오늘(로컬 자정)
+    function getToday() {
+      const now = new Date();
+      return new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    }
+
+    // 두 로컬-자정 Date 사이의 일수 차이 (target - today)
+    // UTC 환산으로 빼서 DST 영향 제거
+    function diffDays(target, today) {
+      const utcTarget = Date.UTC(target.getFullYear(), target.getMonth(), target.getDate());
+      const utcToday = Date.UTC(today.getFullYear(), today.getMonth(), today.getDate());
+      return Math.round((utcTarget - utcToday) / MS_PER_DAY);
+    }
+
+    // D-day 라벨 계산
+    function getDdayInfo(targetStr, today) {
+      const target = parseDateInput(targetStr);
+      if (!target) return null;
+      const delta = diffDays(target, today); // +면 미래, 0이면 당일, -면 과거
+      let label, status;
+      if (delta > 0) { label = `D-${delta}`; status = 'future'; }
+      else if (delta === 0) { label = 'D-DAY'; status = 'today'; }
+      else { label = `D+${Math.abs(delta)}`; status = 'past'; }
+
+      const absDays = Math.abs(delta);
+      const weeks = Math.floor(absDays / 7);
+      const remDays = absDays % 7;
+      return { delta, label, status, absDays, weeks, remDays, target };
+    }
+
+    // 한국어 날짜 포맷 (요일 포함)
+    const WEEKDAYS = ['일', '월', '화', '수', '목', '금', '토'];
+    function formatKorean(date) {
+      return `${date.getFullYear()}년 ${date.getMonth() + 1}월 ${date.getDate()}일 (${WEEKDAYS[date.getDay()]})`;
+    }
+
+    // 진행률: 생성일(createdAt) ~ 목표일 구간에서 오늘이 어디쯤인지 (0~100)
+    function getProgress(createdAtStr, targetStr, today) {
+      const start = parseDateInput(createdAtStr);
+      const target = parseDateInput(targetStr);
+      if (!start || !target) return null;
+      const total = diffDays(target, start);
+      if (total <= 0) return null; // 등록 시점에 이미 지났거나 당일
+      const passed = diffDays(today, start);
+      const ratio = Math.max(0, Math.min(100, Math.round((passed / total) * 100)));
+      return ratio;
+    }
+
+    // ========================================
+    // localStorage 영속화 훅
+    // ========================================
+    function useLocalStorage(key, initial) {
+      const [value, setValue] = useState(() => {
+        try {
+          const raw = localStorage.getItem(key);
+          return raw ? JSON.parse(raw) : initial;
+        } catch { return initial; }
+      });
+      useEffect(() => {
+        try { localStorage.setItem(key, JSON.stringify(value)); } catch {}
+      }, [key, value]);
+      return [value, setValue];
+    }
+
+    // ========================================
+    // 색상 팔레트
+    // ========================================
+    const COLORS = [
+      { name: '블루', value: 'blue', ring: 'ring-blue-400', bar: 'bg-blue-500', chip: 'bg-blue-100 text-blue-700', dot: 'bg-blue-500' },
+      { name: '에메랄드', value: 'emerald', ring: 'ring-emerald-400', bar: 'bg-emerald-500', chip: 'bg-emerald-100 text-emerald-700', dot: 'bg-emerald-500' },
+      { name: '바이올렛', value: 'violet', ring: 'ring-violet-400', bar: 'bg-violet-500', chip: 'bg-violet-100 text-violet-700', dot: 'bg-violet-500' },
+      { name: '핑크', value: 'pink', ring: 'ring-pink-400', bar: 'bg-pink-500', chip: 'bg-pink-100 text-pink-700', dot: 'bg-pink-500' },
+      { name: '앰버', value: 'amber', ring: 'ring-amber-400', bar: 'bg-amber-500', chip: 'bg-amber-100 text-amber-700', dot: 'bg-amber-500' },
+      { name: '슬레이트', value: 'slate', ring: 'ring-slate-400', bar: 'bg-slate-500', chip: 'bg-slate-200 text-slate-700', dot: 'bg-slate-500' },
+    ];
+    function getColor(value) {
+      return COLORS.find(c => c.value === value) || COLORS[0];
+    }
+
+    // ========================================
+    // 🎨 Design System Components
+    // ========================================
+    function Button({ variant = 'primary', size = 'md', className = '', children, ...props }) {
+      const base = 'inline-flex items-center justify-center font-medium rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-offset-1 disabled:opacity-50 disabled:cursor-not-allowed';
+      const variants = {
+        primary: 'bg-blue-600 text-white hover:bg-blue-700 focus:ring-blue-400',
+        secondary: 'bg-slate-200 text-slate-700 hover:bg-slate-300 focus:ring-slate-400',
+        danger: 'bg-red-600 text-white hover:bg-red-700 focus:ring-red-400',
+        ghost: 'bg-transparent text-slate-600 hover:bg-slate-100 focus:ring-slate-300',
+      };
+      const sizes = {
+        sm: 'px-2.5 py-1 text-sm',
+        md: 'px-4 py-2 text-sm',
+        lg: 'px-5 py-2.5 text-base',
+      };
+      return (
+        <button className={`${base} ${variants[variant]} ${sizes[size]} ${className}`} {...props}>
+          {children}
+        </button>
+      );
+    }
+
+    function Input({ label, error, className = '', ...props }) {
+      return (
+        <label className="block">
+          {label && <span className="block mb-1 text-sm font-medium text-slate-700">{label}</span>}
+          <input
+            className={`w-full px-3 py-2 rounded-lg border bg-white text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-400 ${error ? 'border-red-400' : 'border-slate-300'} ${className}`}
+            {...props}
+          />
+          {error && <span className="block mt-1 text-xs text-red-500">{error}</span>}
+        </label>
+      );
+    }
+
+    function Textarea({ label, className = '', ...props }) {
+      return (
+        <label className="block">
+          {label && <span className="block mb-1 text-sm font-medium text-slate-700">{label}</span>}
+          <textarea
+            className={`w-full px-3 py-2 rounded-lg border border-slate-300 bg-white text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-400 resize-none ${className}`}
+            {...props}
+          />
+        </label>
+      );
+    }
+
+    function Card({ className = '', children, ...props }) {
+      return (
+        <div className={`bg-white rounded-2xl shadow-sm border border-slate-200 ${className}`} {...props}>
+          {children}
+        </div>
+      );
+    }
+
+    function Modal({ isOpen, onClose, title, children }) {
+      useEffect(() => {
+        if (!isOpen) return;
+        const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+        window.addEventListener('keydown', onKey);
+        document.body.style.overflow = 'hidden';
+        return () => {
+          window.removeEventListener('keydown', onKey);
+          document.body.style.overflow = '';
+        };
+      }, [isOpen, onClose]);
+
+      if (!isOpen) return null;
+      return (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
+          <div className="absolute inset-0 bg-black/40" onClick={onClose} aria-hidden="true" />
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label={title}
+            className="relative w-full sm:max-w-lg bg-white rounded-t-2xl sm:rounded-2xl shadow-xl max-h-[90vh] overflow-y-auto fade-in"
+          >
+            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 sticky top-0 bg-white rounded-t-2xl">
+              <h2 className="text-lg font-bold text-slate-800">{title}</h2>
+              <button onClick={onClose} aria-label="닫기" className="text-slate-400 hover:text-slate-600 text-2xl leading-none">×</button>
+            </div>
+            <div className="p-5">{children}</div>
+          </div>
+        </div>
+      );
+    }
+
+    // ========================================
+    // 🧩 이벤트 입력 폼 (추가/수정 공용)
+    // ========================================
+    function EventForm({ initial, onSubmit, onCancel }) {
+      const [title, setTitle] = useState(initial?.title || '');
+      const [date, setDate] = useState(initial?.date || toDateInput(getToday()));
+      const [memo, setMemo] = useState(initial?.memo || '');
+      const [color, setColor] = useState(initial?.color || 'blue');
+      const [errors, setErrors] = useState({});
+
+      const handleSubmit = (e) => {
+        e.preventDefault();
+        const errs = {};
+        if (!title.trim()) errs.title = '제목을 입력해 주세요.';
+        if (!parseDateInput(date)) errs.date = '날짜를 선택해 주세요.';
+        setErrors(errs);
+        if (Object.keys(errs).length) return;
+        onSubmit({ title: title.trim(), date, memo: memo.trim(), color });
+      };
+
+      return (
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <Input
+            label="제목"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            placeholder="예: 정보처리기사 시험"
+            error={errors.title}
+            maxLength={40}
+            autoFocus
+          />
+          <Input
+            label="목표 날짜"
+            type="date"
+            value={date}
+            onChange={(e) => setDate(e.target.value)}
+            error={errors.date}
+          />
+          <Textarea
+            label="메모 (선택)"
+            value={memo}
+            onChange={(e) => setMemo(e.target.value)}
+            placeholder="간단한 메모를 남겨보세요"
+            rows={2}
+            maxLength={120}
+          />
+          <div>
+            <span className="block mb-2 text-sm font-medium text-slate-700">색상</span>
+            <div className="flex flex-wrap gap-2">
+              {COLORS.map(c => (
+                <button
+                  type="button"
+                  key={c.value}
+                  onClick={() => setColor(c.value)}
+                  aria-label={c.name}
+                  className={`w-8 h-8 rounded-full ${c.dot} transition-transform ${color === c.value ? `ring-2 ring-offset-2 ${c.ring} scale-110` : 'opacity-70 hover:opacity-100'}`}
+                />
+              ))}
+            </div>
+          </div>
+          <div className="flex gap-2 pt-2">
+            <Button type="submit" className="flex-1" size="lg">{initial ? '수정 완료' : '추가하기'}</Button>
+            <Button type="button" variant="secondary" size="lg" onClick={onCancel}>취소</Button>
+          </div>
+        </form>
+      );
+    }
+
+    // ========================================
+    // 🧩 이벤트 카드
+    // ========================================
+    function EventCard({ event, today, onEdit, onDelete }) {
+      const info = getDdayInfo(event.date, today);
+      const color = getColor(event.color);
+      const progress = getProgress(event.createdAt, event.date, today);
+
+      // 상태별 강조 스타일
+      let badgeClass, accent;
+      if (info.status === 'today') {
+        badgeClass = 'bg-red-600 text-white dday-glow';
+        accent = 'border-red-300';
+      } else if (info.status === 'past') {
+        badgeClass = 'bg-slate-400 text-white';
+        accent = 'border-slate-200';
+      } else if (info.delta <= 7) {
+        badgeClass = 'bg-orange-500 text-white'; // 임박
+        accent = 'border-orange-200';
+      } else if (info.delta <= 30) {
+        badgeClass = 'bg-blue-600 text-white';
+        accent = 'border-slate-200';
+      } else {
+        badgeClass = 'bg-slate-700 text-white';
+        accent = 'border-slate-200';
+      }
+
+      return (
+        <Card className={`p-4 sm:p-5 border-l-4 ${accent} fade-in`} style={{ borderLeftColor: '' }}>
+          <div className="flex items-start gap-4">
+            <div className={`w-1.5 self-stretch rounded-full ${color.dot}`} aria-hidden="true" />
+            <div className="flex-1 min-w-0">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <h3 className="text-lg font-bold text-slate-800 truncate">{event.title}</h3>
+                  <p className="text-sm text-slate-500 mt-0.5">{formatKorean(info.target)}</p>
+                </div>
+                <span className={`shrink-0 px-3 py-1.5 rounded-xl text-base font-extrabold tracking-tight ${badgeClass}`}>
+                  {info.label}
+                </span>
+              </div>
+
+              {event.memo && (
+                <p className="text-sm text-slate-600 mt-2 bg-slate-50 rounded-lg px-3 py-2">{event.memo}</p>
+              )}
+
+              {/* 부가 정보 */}
+              <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500">
+                {info.status === 'future' && (
+                  <span>남은 일수 <b className="text-slate-700">{info.absDays}일</b></span>
+                )}
+                {info.status === 'past' && (
+                  <span>지난 일수 <b className="text-slate-700">{info.absDays}일</b></span>
+                )}
+                {info.status === 'today' && (
+                  <span className="text-red-600 font-semibold">오늘이 바로 그 날입니다!</span>
+                )}
+                {info.absDays >= 7 && (
+                  <span className="text-slate-400">
+                    ({info.weeks}주{info.remDays > 0 ? ` ${info.remDays}일` : ''})
+                  </span>
+                )}
+              </div>
+
+              {/* 진행률 (미래 이벤트만) */}
+              {info.status === 'future' && progress !== null && (
+                <div className="mt-3">
+                  <div className="flex justify-between text-xs text-slate-400 mb-1">
+                    <span>진행률</span>
+                    <span>{progress}%</span>
+                  </div>
+                  <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
+                    <div className={`h-full ${color.bar} rounded-full transition-all`} style={{ width: `${progress}%` }} />
+                  </div>
+                </div>
+              )}
+
+              {/* 액션 */}
+              <div className="mt-3 flex gap-1 justify-end">
+                <Button variant="ghost" size="sm" onClick={() => onEdit(event)}>수정</Button>
+                <Button variant="ghost" size="sm" className="text-red-500 hover:bg-red-50" onClick={() => onDelete(event)}>삭제</Button>
+              </div>
+            </div>
+          </div>
+        </Card>
+      );
+    }
+
+    // ========================================
+    // 🚀 App
+    // ========================================
+    function App() {
+      const [events, setEvents] = useLocalStorage('dday-events-v1', []);
+      const [modalOpen, setModalOpen] = useState(false);
+      const [editing, setEditing] = useState(null); // null=추가, obj=수정
+      const [today, setToday] = useState(getToday());
+
+      // 자정을 넘어가는 경우를 대비해 오늘 날짜를 주기적으로 갱신
+      useEffect(() => {
+        const id = setInterval(() => {
+          const t = getToday();
+          setToday(prev => (diffDays(t, prev) !== 0 ? t : prev));
+        }, 60 * 1000);
+        return () => clearInterval(id);
+      }, []);
+
+      // 가까운 D-day 순 정렬: 오늘/미래를 먼저(델타 오름차순), 지난 건 뒤로
+      const sorted = useMemo(() => {
+        return [...events].sort((a, b) => {
+          const da = getDdayInfo(a.date, today).delta;
+          const db = getDdayInfo(b.date, today).delta;
+          const fa = da >= 0 ? 0 : 1;
+          const fb = db >= 0 ? 0 : 1;
+          if (fa !== fb) return fa - fb;            // 미래/당일 먼저
+          if (fa === 0) return da - db;             // 미래: 가까운 순
+          return db - da;                           // 과거: 최근 지난 순
+        });
+      }, [events, today]);
+
+      const openAdd = () => { setEditing(null); setModalOpen(true); };
+      const openEdit = (ev) => { setEditing(ev); setModalOpen(true); };
+
+      const handleSubmit = (data) => {
+        if (editing) {
+          setEvents(events.map(e => e.id === editing.id ? { ...e, ...data } : e));
+        } else {
+          setEvents([
+            ...events,
+            { id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), ...data, createdAt: toDateInput(getToday()) },
+          ]);
+        }
+        setModalOpen(false);
+        setEditing(null);
+      };
+
+      const handleDelete = (ev) => {
+        if (window.confirm(`"${ev.title}" 이벤트를 삭제할까요?`)) {
+          setEvents(events.filter(e => e.id !== ev.id));
+        }
+      };
+
+      // 상단 요약: 가장 가까운 다가오는 이벤트
+      const nextUp = useMemo(() => {
+        const upcoming = sorted.filter(e => getDdayInfo(e.date, today).delta >= 0);
+        return upcoming[0] || null;
+      }, [sorted, today]);
+
+      return (
+        <div className="min-h-screen max-w-2xl mx-auto px-4 py-6 sm:py-10">
+          {/* 헤더 */}
+          <header className="mb-6">
+            <div className="flex items-end justify-between">
+              <div>
+                <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-800">⏳ D-day 카운터</h1>
+                <p className="text-sm text-slate-500 mt-1">{formatKorean(today)} 기준</p>
+              </div>
+              <Button onClick={openAdd} size="md" className="shrink-0">+ 새 D-day</Button>
+            </div>
+          </header>
+
+          {/* 다가오는 이벤트 하이라이트 */}
+          {nextUp && (() => {
+            const info = getDdayInfo(nextUp.date, today);
+            return (
+              <div className="mb-6 rounded-2xl bg-gradient-to-br from-slate-800 to-slate-700 text-white p-5 shadow-md">
+                <p className="text-xs text-slate-300 mb-1">가장 가까운 일정</p>
+                <div className="flex items-center justify-between gap-3">
+                  <h2 className="text-xl font-bold truncate">{nextUp.title}</h2>
+                  <span className={`text-2xl font-extrabold ${info.status === 'today' ? 'text-red-400' : 'text-white'}`}>
+                    {info.label}
+                  </span>
+                </div>
+                <p className="text-sm text-slate-300 mt-1">{formatKorean(info.target)}</p>
+              </div>
+            );
+          })()}
+
+          {/* 목록 */}
+          {sorted.length === 0 ? (
+            <Card className="p-10 text-center">
+              <div className="text-5xl mb-3">📅</div>
+              <p className="text-slate-600 font-medium">등록된 D-day가 없어요.</p>
+              <p className="text-sm text-slate-400 mt-1 mb-4">중요한 날짜를 추가하고 남은 일수를 확인해 보세요.</p>
+              <Button onClick={openAdd}>첫 D-day 추가하기</Button>
+            </Card>
+          ) : (
+            <div className="space-y-3">
+              {sorted.map(ev => (
+                <EventCard
+                  key={ev.id}
+                  event={ev}
+                  today={today}
+                  onEdit={openEdit}
+                  onDelete={handleDelete}
+                />
+              ))}
+            </div>
+          )}
+
+          {sorted.length > 0 && (
+            <p className="text-center text-xs text-slate-400 mt-6">총 {sorted.length}개의 D-day · 자동 저장됨</p>
+          )}
+
+          {/* 추가/수정 모달 */}
+          <Modal
+            isOpen={modalOpen}
+            onClose={() => { setModalOpen(false); setEditing(null); }}
+            title={editing ? 'D-day 수정' : '새 D-day 추가'}
+          >
+            <EventForm
+              key={editing ? editing.id : 'new'}
+              initial={editing}
+              onSubmit={handleSubmit}
+              onCancel={() => { setModalOpen(false); setEditing(null); }}
+            />
+          </Modal>
+        </div>
+      );
+    }
+
+    // ========================================
+    // Render
+    // ========================================
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>

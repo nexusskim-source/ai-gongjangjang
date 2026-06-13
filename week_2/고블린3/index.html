@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HEX 색상 변형 생성기</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+    .animate-fade-in { animation: fadeIn 0.2s ease-out; }
+  </style>
+</head>
+<body class="bg-slate-50">
+  <div id="root"></div>
+  <script type="text/babel">
+    // ========================================
+    // React Hooks
+    // ========================================
+    const { useState, useEffect, useMemo, useCallback, useRef } = React;
+
+    // ========================================
+    // 🎨 색 변환 유틸 (HEX ↔ RGB ↔ HSL)
+    // ========================================
+
+    // 입력 정규화: #RGB / RGB / #RRGGBB / RRGGBB 허용
+    function normalizeHex(input) {
+      if (typeof input !== 'string') return null;
+      let h = input.trim().replace(/^#/, '').toLowerCase();
+      if (/^[0-9a-f]{3}$/.test(h)) {
+        h = h.split('').map(c => c + c).join(''); // 단축형 → 6자리
+      }
+      if (/^[0-9a-f]{6}$/.test(h)) return '#' + h;
+      return null; // 유효하지 않음
+    }
+
+    function hexToRgb(hex) {
+      const n = normalizeHex(hex);
+      if (!n) return null;
+      const int = parseInt(n.slice(1), 16);
+      return { r: (int >> 16) & 255, g: (int >> 8) & 255, b: int & 255 };
+    }
+
+    function rgbToHex({ r, g, b }) {
+      const clamp = v => Math.max(0, Math.min(255, Math.round(v)));
+      const toHex = v => clamp(v).toString(16).padStart(2, '0');
+      return '#' + toHex(r) + toHex(g) + toHex(b);
+    }
+
+    // RGB(0-255) → HSL(h:0-360, s:0-100, l:0-100)
+    function rgbToHsl({ r, g, b }) {
+      r /= 255; g /= 255; b /= 255;
+      const max = Math.max(r, g, b), min = Math.min(r, g, b);
+      const d = max - min;
+      let h = 0;
+      if (d !== 0) {
+        if (max === r) h = ((g - b) / d) % 6;
+        else if (max === g) h = (b - r) / d + 2;
+        else h = (r - g) / d + 4;
+        h *= 60;
+        if (h < 0) h += 360;
+      }
+      const l = (max + min) / 2;
+      const s = d === 0 ? 0 : d / (1 - Math.abs(2 * l - 1));
+      return { h: Math.round(h), s: Math.round(s * 100), l: Math.round(l * 100) };
+    }
+
+    // HSL → RGB
+    function hslToRgb({ h, s, l }) {
+      s /= 100; l /= 100;
+      const c = (1 - Math.abs(2 * l - 1)) * s;
+      const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
+      const m = l - c / 2;
+      let r = 0, g = 0, b = 0;
+      if (h < 60) [r, g, b] = [c, x, 0];
+      else if (h < 120) [r, g, b] = [x, c, 0];
+      else if (h < 180) [r, g, b] = [0, c, x];
+      else if (h < 240) [r, g, b] = [0, x, c];
+      else if (h < 300) [r, g, b] = [x, 0, c];
+      else [r, g, b] = [c, 0, x];
+      return { r: (r + m) * 255, g: (g + m) * 255, b: (b + m) * 255 };
+    }
+
+    // 흰색과 일정 비율로 믹스 (tint), amount 0~1
+    function mixWithWhite(rgb, amount) {
+      return {
+        r: rgb.r + (255 - rgb.r) * amount,
+        g: rgb.g + (255 - rgb.g) * amount,
+        b: rgb.b + (255 - rgb.b) * amount,
+      };
+    }
+
+    // 검정과 일정 비율로 믹스 (shade), amount 0~1
+    function mixWithBlack(rgb, amount) {
+      return {
+        r: rgb.r * (1 - amount),
+        g: rgb.g * (1 - amount),
+        b: rgb.b * (1 - amount),
+      };
+    }
+
+    // 상대 휘도 → 대비 텍스트 색 (흑/백 자동)
+    function getContrastText(rgb) {
+      // WCAG 상대 휘도
+      const srgb = [rgb.r, rgb.g, rgb.b].map(v => {
+        v /= 255;
+        return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+      });
+      const lum = 0.2126 * srgb[0] + 0.7152 * srgb[1] + 0.0722 * srgb[2];
+      return lum > 0.5 ? '#000000' : '#ffffff';
+    }
+
+    // 기준색 → 변형 5+5 + 기준색 (밝은→어두운 순으로 정렬된 11개)
+    function buildPalette(hex) {
+      const base = hexToRgb(hex);
+      if (!base) return [];
+      const tints = [], shades = [];
+      // 5단계, 0.16 간격 (0.16~0.80) — 보기 좋은 그라데이션
+      for (let i = 5; i >= 1; i--) {
+        const amount = i * 0.16;
+        tints.push({ hex: rgbToHex(mixWithWhite(base, amount)), label: `밝게 +${i}`, kind: 'tint' });
+      }
+      for (let i = 1; i <= 5; i++) {
+        const amount = i * 0.16;
+        shades.push({ hex: rgbToHex(mixWithBlack(base, amount)), label: `어둡게 -${i}`, kind: 'shade' });
+      }
+      const baseItem = { hex: rgbToHex(base), label: '기준색', kind: 'base' };
+      return [...tints, baseItem, ...shades];
+    }
+
+    // ========================================
+    // 🎨 디자인 시스템 컴포넌트
+    // ========================================
+    function Card({ children, className = '' }) {
+      return (
+        <div className={`bg-white rounded-2xl shadow-sm border border-slate-200 ${className}`}>
+          {children}
+        </div>
+      );
+    }
+
+    function StatBadge({ label, value }) {
+      return (
+        <div className="flex flex-col items-center px-3 py-2 bg-slate-100 rounded-lg min-w-[80px]">
+          <span className="text-[11px] font-semibold text-slate-500 tracking-wide">{label}</span>
+          <span className="text-sm font-mono text-slate-800 mt-0.5">{value}</span>
+        </div>
+      );
+    }
+
+    // ========================================
+    // 🧩 색상 스와치 컴포넌트
+    // ========================================
+    function Swatch({ item, onCopy, copied }) {
+      const rgb = hexToRgb(item.hex);
+      const textColor = getContrastText(rgb);
+      const isBase = item.kind === 'base';
+      return (
+        <button
+          onClick={() => onCopy(item.hex)}
+          className={`group relative w-full flex items-center justify-between px-5 transition-transform active:scale-[0.99] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-slate-400 ${isBase ? 'h-24 ring-2 ring-slate-800 ring-offset-2 rounded-xl z-10' : 'h-16 first:rounded-t-xl last:rounded-b-xl'}`}
+          style={{ backgroundColor: item.hex, color: textColor }}
+          aria-label={`${item.hex} 복사`}
+        >
+          <span className={`font-semibold ${isBase ? 'text-base' : 'text-xs'} opacity-80`} style={{ color: textColor }}>
+            {item.label}
+          </span>
+          <span className="flex items-center gap-2">
+            <span className={`font-mono font-bold ${isBase ? 'text-xl' : 'text-base'} uppercase`} style={{ color: textColor }}>
+              {item.hex}
+            </span>
+            {copied === item.hex ? (
+              <span className="text-xs font-bold animate-fade-in px-2 py-0.5 rounded-full" style={{ backgroundColor: textColor, color: item.hex }}>
+                복사됨!
+              </span>
+            ) : (
+              <svg className="w-4 h-4 opacity-0 group-hover:opacity-70 transition-opacity" fill="none" stroke="currentColor" viewBox="0 0 24 24" style={{ color: textColor }}>
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+              </svg>
+            )}
+          </span>
+        </button>
+      );
+    }
+
+    // ========================================
+    // 📄 메인 앱
+    // ========================================
+    const STORAGE_KEY = 'hex-palette:lastColor';
+    const DEFAULT_HEX = '#3b82f6';
+
+    function App() {
+      const [text, setText] = useState(() => {
+        const saved = localStorage.getItem(STORAGE_KEY);
+        return saved && normalizeHex(saved) ? saved : DEFAULT_HEX;
+      });
+      const [copied, setCopied] = useState(null);
+      const copyTimer = useRef(null);
+
+      const normalized = normalizeHex(text);
+      const isValid = !!normalized;
+
+      // 유효할 때만 localStorage 갱신
+      useEffect(() => {
+        if (normalized) localStorage.setItem(STORAGE_KEY, normalized);
+      }, [normalized]);
+
+      // 정리
+      useEffect(() => () => clearTimeout(copyTimer.current), []);
+
+      const palette = useMemo(() => (normalized ? buildPalette(normalized) : []), [normalized]);
+      const rgb = normalized ? hexToRgb(normalized) : null;
+      const hsl = rgb ? rgbToHsl(rgb) : null;
+
+      const handleCopy = useCallback((hex) => {
+        const upper = hex.toUpperCase();
+        navigator.clipboard?.writeText(upper).catch(() => {});
+        setCopied(hex);
+        clearTimeout(copyTimer.current);
+        copyTimer.current = setTimeout(() => setCopied(null), 1200);
+      }, []);
+
+      return (
+        <div className="min-h-screen px-4 py-8 sm:py-12">
+          <div className="max-w-2xl mx-auto">
+            {/* 헤더 */}
+            <header className="text-center mb-8">
+              <h1 className="text-3xl sm:text-4xl font-bold text-slate-800">HEX 색상 변형 생성기</h1>
+              <p className="text-slate-500 mt-2 text-sm sm:text-base">
+                기준 색을 입력하면 밝은 톤 5개 · 어두운 톤 5개를 만들어 드려요.
+              </p>
+            </header>
+
+            {/* 입력 카드 */}
+            <Card className="p-5 sm:p-6 mb-6">
+              <label className="block text-sm font-semibold text-slate-600 mb-3">기준 색상</label>
+              <div className="flex flex-col sm:flex-row gap-4 sm:items-center">
+                {/* 컬러 피커 */}
+                <input
+                  type="color"
+                  value={isValid ? normalized : DEFAULT_HEX}
+                  onChange={(e) => setText(e.target.value)}
+                  className="w-full sm:w-20 h-14 rounded-xl border border-slate-200 cursor-pointer bg-white p-1"
+                  aria-label="컬러 피커"
+                />
+                {/* 텍스트 입력 */}
+                <div className="flex-1">
+                  <div className="relative">
+                    <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 font-mono text-lg">#</span>
+                    <input
+                      type="text"
+                      value={text.replace(/^#/, '')}
+                      onChange={(e) => setText('#' + e.target.value.replace(/[^0-9a-fA-F]/g, '').slice(0, 6))}
+                      placeholder="RRGGBB 또는 RGB"
+                      className={`w-full pl-9 pr-4 h-14 rounded-xl border font-mono text-lg uppercase tracking-wider focus:outline-none focus:ring-2 transition ${isValid ? 'border-slate-200 focus:ring-blue-400' : 'border-red-300 focus:ring-red-400 bg-red-50'}`}
+                      aria-invalid={!isValid}
+                    />
+                  </div>
+                  {!isValid && (
+                    <p className="text-xs text-red-500 mt-2 animate-fade-in" role="alert">
+                      올바른 HEX 코드가 아니에요. 예: <span className="font-mono">F00</span> 또는 <span className="font-mono">FF0000</span>
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              {/* RGB / HSL 표시 */}
+              {isValid && rgb && hsl && (
+                <div className="flex flex-wrap gap-2 mt-5 justify-center sm:justify-start">
+                  <StatBadge label="HEX" value={normalized.toUpperCase()} />
+                  <StatBadge label="RGB" value={`${rgb.r}, ${rgb.g}, ${rgb.b}`} />
+                  <StatBadge label="HSL" value={`${hsl.h}°, ${hsl.s}%, ${hsl.l}%`} />
+                </div>
+              )}
+            </Card>
+
+            {/* 팔레트 */}
+            {isValid ? (
+              <Card className="p-3 sm:p-4">
+                <div className="flex flex-col gap-px">
+                  {palette.map((item, i) => (
+                    <Swatch key={i} item={item} onCopy={handleCopy} copied={copied} />
+                  ))}
+                </div>
+                <p className="text-center text-xs text-slate-400 mt-4">
+                  스와치를 클릭하면 HEX 코드가 클립보드에 복사됩니다.
+                </p>
+              </Card>
+            ) : (
+              <Card className="p-10 text-center text-slate-400">
+                유효한 HEX 코드를 입력하면 색상 팔레트가 표시됩니다.
+              </Card>
+            )}
+
+            <footer className="text-center text-xs text-slate-400 mt-8">
+              마지막 입력 색상은 자동 저장되어 새로고침해도 유지됩니다.
+            </footer>
+          </div>
+        </div>
+      );
+    }
+
+    // ========================================
+    // 🚀 렌더링
+    // ========================================
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>
