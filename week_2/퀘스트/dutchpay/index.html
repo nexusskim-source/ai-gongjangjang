@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>더치페이 계산기</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone@7.23.5/babel.min.js"></script>
+</head>
+<body class="bg-slate-100">
+  <div id="root"></div>
+  <script type="text/babel">
+    const { useState, useMemo } = React;
+
+    // 천 단위 콤마 + 원화 표시
+    const won = (n) => '₩' + Math.round(n).toLocaleString('ko-KR');
+    // 입력값에서 숫자만 추출
+    const onlyDigits = (s) => s.replace(/[^0-9]/g, '');
+    const fmtComma = (s) => {
+      const d = onlyDigits(s);
+      return d ? Number(d).toLocaleString('ko-KR') : '';
+    };
+
+    const TIP_OPTIONS = [0, 5, 10, 15, 20];
+
+    function App() {
+      const [amount, setAmount] = useState('');      // 콤마 포함 문자열
+      const [tip, setTip] = useState(0);             // 팁 비율(%)
+      const [mode, setMode] = useState('count');     // 'count' | 'names'
+      const [count, setCount] = useState('2');       // 인원수 문자열
+      const [names, setNames] = useState(['', '']);  // 참가자 이름
+      const [nameInput, setNameInput] = useState('');
+
+      const baseAmount = Number(onlyDigits(amount)) || 0;
+      const tipAmount = baseAmount * (tip / 100);
+      const total = baseAmount + tipAmount;
+
+      // 인원수 결정
+      const people = mode === 'count'
+        ? Math.max(0, Number(onlyDigits(count)) || 0)
+        : names.length;
+
+      const result = useMemo(() => {
+        if (total <= 0 || people <= 0) return null;
+        // 1원 단위 잔돈 없이: 1인당 올림하지 않고, 나머지를 안내
+        const totalWon = Math.round(total);
+        const perPersonFloor = Math.floor(totalWon / people);
+        const remainder = totalWon - perPersonFloor * people; // 0 ~ people-1 원
+        // 10원 단위로 올림한 깔끔 금액(선택 안내용)
+        const perPersonRound = Math.ceil(total / people / 10) * 10;
+        return { totalWon, perPersonFloor, remainder, perPersonRound };
+      }, [total, people]);
+
+      // 이름 모드 핸들러
+      const addName = () => {
+        const v = nameInput.trim();
+        setNames([...names, v || `참가자 ${names.length + 1}`]);
+        setNameInput('');
+      };
+      const removeName = (i) => setNames(names.filter((_, idx) => idx !== i));
+      const updateName = (i, v) => setNames(names.map((n, idx) => idx === i ? v : n));
+
+      return (
+        <div className="min-h-screen flex flex-col items-center px-4 py-8">
+          <div className="w-full max-w-md">
+            <header className="text-center mb-6">
+              <h1 className="text-3xl font-bold text-slate-800">💸 더치페이 계산기</h1>
+              <p className="text-slate-500 mt-1 text-sm">총액을 공평하게 나눠보세요</p>
+            </header>
+
+            <div className="bg-white rounded-2xl shadow-lg p-5 sm:p-6 space-y-6">
+
+              {/* 총 금액 */}
+              <div>
+                <label className="block text-sm font-semibold text-slate-700 mb-2">총 금액</label>
+                <div className="relative">
+                  <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 text-lg">₩</span>
+                  <input
+                    inputMode="numeric"
+                    value={amount}
+                    onChange={(e) => setAmount(fmtComma(e.target.value))}
+                    placeholder="0"
+                    className="w-full pl-9 pr-4 py-3 text-right text-xl font-semibold border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-400 focus:border-indigo-400 outline-none"
+                  />
+                </div>
+                <div className="flex gap-2 mt-2">
+                  {[10000, 50000, 100000].map((q) => (
+                    <button key={q}
+                      onClick={() => setAmount(fmtComma(String(baseAmount + q)))}
+                      className="flex-1 text-xs py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 font-medium">
+                      +{q.toLocaleString()}
+                    </button>
+                  ))}
+                  <button onClick={() => setAmount('')}
+                    className="px-3 text-xs py-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-500 font-medium">
+                    초기화
+                  </button>
+                </div>
+              </div>
+
+              {/* 팁 / 봉사료 */}
+              <div>
+                <label className="block text-sm font-semibold text-slate-700 mb-2">팁 / 봉사료 (선택)</label>
+                <div className="flex gap-2">
+                  {TIP_OPTIONS.map((t) => (
+                    <button key={t}
+                      onClick={() => setTip(t)}
+                      className={`flex-1 py-2 rounded-xl text-sm font-semibold transition ${
+                        tip === t
+                          ? 'bg-indigo-600 text-white shadow'
+                          : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                      }`}>
+                      {t === 0 ? '없음' : t + '%'}
+                    </button>
+                  ))}
+                </div>
+                {tip > 0 && (
+                  <p className="text-xs text-slate-500 mt-2 text-right">
+                    팁 {won(tipAmount)} 포함 → 합계 {won(total)}
+                  </p>
+                )}
+              </div>
+
+              {/* 인원 입력 방식 */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="text-sm font-semibold text-slate-700">인원</label>
+                  <div className="flex bg-slate-100 rounded-lg p-0.5 text-xs font-medium">
+                    <button onClick={() => setMode('count')}
+                      className={`px-3 py-1 rounded-md ${mode === 'count' ? 'bg-white shadow text-indigo-600' : 'text-slate-500'}`}>
+                      인원수
+                    </button>
+                    <button onClick={() => setMode('names')}
+                      className={`px-3 py-1 rounded-md ${mode === 'names' ? 'bg-white shadow text-indigo-600' : 'text-slate-500'}`}>
+                      이름으로
+                    </button>
+                  </div>
+                </div>
+
+                {mode === 'count' ? (
+                  <div className="flex items-center justify-center gap-4">
+                    <button
+                      onClick={() => setCount(String(Math.max(1, people - 1)))}
+                      className="w-12 h-12 rounded-full bg-slate-100 hover:bg-slate-200 text-2xl font-bold text-slate-600">
+                      −
+                    </button>
+                    <input
+                      inputMode="numeric"
+                      value={count}
+                      onChange={(e) => setCount(onlyDigits(e.target.value))}
+                      className="w-20 text-center text-2xl font-bold border-b-2 border-slate-300 focus:border-indigo-500 outline-none py-1"
+                    />
+                    <button
+                      onClick={() => setCount(String(people + 1))}
+                      className="w-12 h-12 rounded-full bg-slate-100 hover:bg-slate-200 text-2xl font-bold text-slate-600">
+                      +
+                    </button>
+                    <span className="text-slate-500 text-sm">명</span>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {names.length === 0 && (
+                      <p className="text-center text-sm text-slate-400 py-3 border border-dashed border-slate-200 rounded-xl">
+                        아직 참가자가 없어요. 아래에서 추가해 주세요.
+                      </p>
+                    )}
+                    {names.map((n, i) => (
+                      <div key={i} className="flex items-center gap-2">
+                        <span className="w-6 text-center text-slate-400 text-sm">{i + 1}</span>
+                        <input
+                          value={n}
+                          onChange={(e) => updateName(i, e.target.value)}
+                          placeholder={`참가자 ${i + 1}`}
+                          className="flex-1 px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-300 outline-none"
+                        />
+                        <button onClick={() => removeName(i)}
+                          className="w-8 h-8 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-500 font-bold">
+                          ×
+                        </button>
+                      </div>
+                    ))}
+                    <div className="flex gap-2 pt-1">
+                      <input
+                        value={nameInput}
+                        onChange={(e) => setNameInput(e.target.value)}
+                        onKeyDown={(e) => e.key === 'Enter' && addName()}
+                        placeholder="이름 입력 후 추가"
+                        className="flex-1 px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-300 outline-none"
+                      />
+                      <button onClick={addName}
+                        className="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold">
+                        추가
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* 결과 */}
+              <div className="pt-2 border-t border-slate-100">
+                {!result ? (
+                  <div className="text-center py-6 text-slate-400 text-sm">
+                    총 금액과 인원을 입력하면<br />1인당 금액이 표시됩니다.
+                  </div>
+                ) : (
+                  <div className="text-center">
+                    <p className="text-sm text-slate-500 mb-1">1인당 부담 금액</p>
+                    <p className="text-4xl sm:text-5xl font-extrabold text-indigo-600 tracking-tight">
+                      {won(result.perPersonFloor)}
+                    </p>
+                    <p className="text-xs text-slate-400 mt-2">
+                      합계 {won(result.totalWon)} ÷ {people}명
+                    </p>
+
+                    {result.remainder > 0 && (
+                      <div className="mt-4 bg-amber-50 border border-amber-200 rounded-xl p-3 text-left">
+                        <p className="text-sm font-semibold text-amber-700">⚠️ 잔돈 안내</p>
+                        <p className="text-xs text-amber-700 mt-1 leading-relaxed">
+                          딱 나눠떨어지지 않아 <b>{won(result.remainder)}</b>이 남습니다.
+                          한 명이 1원씩 더 내거나(총 {result.remainder}명이 {won(result.perPersonFloor + 1)}),
+                          나머지는 한 사람이 부담하세요.
+                        </p>
+                        <p className="text-xs text-amber-600 mt-2">
+                          깔끔하게: 1인당 <b>{won(result.perPersonRound)}</b> (10원 단위 올림) 추천
+                        </p>
+                      </div>
+                    )}
+
+                    {mode === 'names' && names.length > 0 && (
+                      <div className="mt-4 text-left space-y-1">
+                        {names.map((n, i) => (
+                          <div key={i} className="flex justify-between text-sm bg-slate-50 rounded-lg px-3 py-2">
+                            <span className="text-slate-600">{n || `참가자 ${i + 1}`}</span>
+                            <span className="font-semibold text-slate-800">
+                              {won(result.perPersonFloor + (i < result.remainder ? 1 : 0))}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <p className="text-center text-xs text-slate-400 mt-4">
+              브라우저에서 바로 동작하는 단일 파일 앱입니다.
+            </p>
+          </div>
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>
