@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>움짤 자막 메이커</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone@7.23.5/babel.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/gif.js@0.2.0/dist/gif.js"></script>
+  <style>
+    canvas { touch-action: none; }
+  </style>
+</head>
+<body class="bg-slate-100">
+  <div id="root"></div>
+  <script type="text/babel">
+    const { useState, useRef, useEffect, useCallback } = React;
+
+    // ---------- GIF 읽기 (브라우저 내장 ImageDecoder) ----------
+    async function decodeGif(file){
+      if(!('ImageDecoder' in window)) throw new Error('이 브라우저는 GIF 분해를 지원하지 않아요. 최신 Chrome을 사용하세요.');
+      const buf = await file.arrayBuffer();
+      const dec = new ImageDecoder({ data: buf, type: 'image/gif' });
+      await dec.tracks.ready;
+      const frames = [];
+      for(let i=0;;i++){
+        let res;
+        try { res = await dec.decode({ frameIndex: i }); }
+        catch(e){ break; }                 // 마지막 프레임 이후 RangeError → 종료
+        const img = res.image;             // VideoFrame
+        const delay = img.duration ? Math.max(20, Math.round(img.duration/1000)) : 100; // ms
+        const c = document.createElement('canvas');
+        c.width = img.displayWidth; c.height = img.displayHeight;
+        c.getContext('2d').drawImage(img, 0, 0);
+        img.close();
+        frames.push({ canvas: c, delay });
+        if(i>1000) break;                  // 안전장치
+      }
+      if(frames.length === 0) throw new Error('GIF에서 프레임을 찾지 못했어요. 올바른 GIF 파일인지 확인해주세요.');
+      return frames; // [{canvas, delay(ms)}]
+    }
+
+    // ---------- GIF 쓰기 워커 (Blob 우회) ----------
+    async function workerUrl(){
+      const r = await fetch('https://cdn.jsdelivr.net/npm/gif.js@0.2.0/dist/gif.worker.js');
+      const t = await r.text();
+      return URL.createObjectURL(new Blob([t], {type:'application/javascript'}));
+    }
+
+    const FONT_STACK = "Impact, 'Arial Black', system-ui, sans-serif";
+
+    // 텍스트 레이어 하나를 ctx에 그림. (cx, cy) = 캔버스 픽셀 좌표 기준 중심
+    function drawTextLayer(ctx, layer, scale){
+      const lines = (layer.text || '').split('\n');
+      const fontSize = layer.size * scale;
+      ctx.font = `bold ${fontSize}px ${FONT_STACK}`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.lineJoin = 'round';
+      const lineH = fontSize * 1.15;
+      const cx = layer.x * scale;
+      const cy = layer.y * scale;
+      const startY = cy - (lines.length - 1) * lineH / 2;
+      lines.forEach((ln, idx) => {
+        const ly = startY + idx * lineH;
+        if(layer.strokeWidth > 0){
+          ctx.strokeStyle = layer.strokeColor;
+          ctx.lineWidth = layer.strokeWidth * scale * 2;
+          ctx.strokeText(ln, cx, ly);
+        }
+        ctx.fillStyle = layer.color;
+        ctx.fillText(ln, cx, ly);
+      });
+    }
+
+    function App(){
+      const [frames, setFrames] = useState(null);     // [{canvas, delay}]
+      const [dims, setDims] = useState(null);          // {w, h}
+      const [layers, setLayers] = useState([]);
+      const [selectedId, setSelectedId] = useState(null);
+      const [loadingMsg, setLoadingMsg] = useState(''); // GIF 분해 로딩
+      const [error, setError] = useState('');
+      const [building, setBuilding] = useState(false);
+      const [progress, setProgress] = useState(0);
+      const [resultUrl, setResultUrl] = useState('');
+      const [dragOver, setDragOver] = useState(false);
+
+      const canvasRef = useRef(null);
+      const wrapRef = useRef(null);
+      const dragState = useRef(null);
+
+      // 미리보기 캔버스: 첫 프레임 + 자막
+      const redraw = useCallback(() => {
+        const cv = canvasRef.current;
+        if(!cv || !frames || !dims) return;
+        cv.width = dims.w; cv.height = dims.h;
+        const ctx = cv.getContext('2d');
+        ctx.clearRect(0,0,dims.w,dims.h);
+        ctx.drawImage(frames[0].canvas, 0, 0);
+        layers.forEach(l => drawTextLayer(ctx, l, 1));
+      }, [frames, dims, layers]);
+
+      useEffect(() => { redraw(); }, [redraw]);
+
+      async function handleFile(file){
+        setError(''); setResultUrl('');
+        if(!file) return;
+        if(file.type !== 'image/gif' && !file.name.toLowerCase().endsWith('.gif')){
+          setError('GIF 파일만 올릴 수 있어요.'); return;
+        }
+        setLoadingMsg('GIF 분해 중...');
+        try {
+          const fr = await decodeGif(file);
+          setFrames(fr);
+          setDims({ w: fr[0].canvas.width, h: fr[0].canvas.height });
+          setLayers([]);
+          setSelectedId(null);
+        } catch(e){
+          setError(e.message || 'GIF를 읽지 못했어요.');
+          setFrames(null); setDims(null);
+        } finally {
+          setLoadingMsg('');
+        }
+      }
+
+      function onInputChange(e){ handleFile(e.target.files[0]); e.target.value=''; }
+      function onDrop(e){ e.preventDefault(); setDragOver(false); handleFile(e.dataTransfer.files[0]); }
+
+      function addLayer(){
+        if(!dims) return;
+        const id = Date.now() + Math.random();
+        setLayers(ls => [...ls, {
+          id, text: '자막', x: dims.w/2, y: dims.h - dims.h*0.12,
+          size: Math.max(20, Math.round(dims.h*0.12)),
+          color: '#ffffff', strokeColor: '#000000', strokeWidth: 3,
+        }]);
+        setSelectedId(id);
+      }
+      function updateLayer(id, patch){ setLayers(ls => ls.map(l => l.id===id ? {...l, ...patch} : l)); }
+      function removeLayer(id){ setLayers(ls => ls.filter(l=>l.id!==id)); if(selectedId===id) setSelectedId(null); }
+
+      // ---- 드래그로 위치 이동 ----
+      function pointerPos(e){
+        const cv = canvasRef.current;
+        const rect = cv.getBoundingClientRect();
+        const scaleX = dims.w / rect.width;
+        const scaleY = dims.h / rect.height;
+        const cx = (e.touches ? e.touches[0].clientX : e.clientX) - rect.left;
+        const cy = (e.touches ? e.touches[0].clientY : e.clientY) - rect.top;
+        return { x: cx * scaleX, y: cy * scaleY };
+      }
+      function hitLayer(p){
+        // 위에서부터 검사 (뒤 레이어 우선)
+        for(let i=layers.length-1;i>=0;i--){
+          const l = layers[i];
+          const lines = (l.text||'').split('\n');
+          const w = Math.max(l.size*2, l.size * Math.max(...lines.map(s=>s.length||1)) * 0.6);
+          const h = l.size * 1.3 * lines.length;
+          if(Math.abs(p.x - l.x) <= w/2 && Math.abs(p.y - l.y) <= h/2) return l;
+        }
+        return null;
+      }
+      function onPointerDown(e){
+        if(!dims) return;
+        const p = pointerPos(e);
+        const l = hitLayer(p);
+        if(l){
+          setSelectedId(l.id);
+          dragState.current = { id: l.id, offX: p.x - l.x, offY: p.y - l.y };
+          e.preventDefault();
+        }
+      }
+      function onPointerMove(e){
+        if(!dragState.current) return;
+        const p = pointerPos(e);
+        const { id, offX, offY } = dragState.current;
+        updateLayer(id, { x: p.x - offX, y: p.y - offY });
+        e.preventDefault();
+      }
+      function onPointerUp(){ dragState.current = null; }
+
+      // ---- 움짤 만들기 ----
+      async function buildGif(){
+        if(!frames || !dims) return;
+        setBuilding(true); setProgress(0); setError(''); setResultUrl('');
+        try {
+          const wUrl = await workerUrl();
+          const gif = new GIF({ workers:2, quality:10, width: dims.w, height: dims.h, workerScript: wUrl, repeat:0 });
+          const compose = document.createElement('canvas');
+          compose.width = dims.w; compose.height = dims.h;
+          const cctx = compose.getContext('2d');
+          frames.forEach(f => {
+            cctx.clearRect(0,0,dims.w,dims.h);
+            cctx.drawImage(f.canvas, 0, 0);
+            layers.forEach(l => drawTextLayer(cctx, l, 1));
+            gif.addFrame(compose, { delay: f.delay, copy: true });
+          });
+          gif.on('progress', p => setProgress(Math.round(p*100)));
+          gif.on('finished', blob => {
+            const url = URL.createObjectURL(blob);
+            setResultUrl(url);
+            setBuilding(false);
+            URL.revokeObjectURL(wUrl);
+          });
+          gif.render();
+        } catch(e){
+          setError('움짤 만들기 실패: ' + (e.message||e));
+          setBuilding(false);
+        }
+      }
+
+      const selected = layers.find(l => l.id===selectedId);
+
+      return (
+        <div className="max-w-6xl mx-auto px-4 py-6">
+          <header className="mb-6 text-center">
+            <h1 className="text-3xl sm:text-4xl font-black text-slate-800">움짤 자막 메이커</h1>
+            <p className="text-slate-500 mt-2 text-sm sm:text-base">움직이는 GIF에 자막을 얹고 다시 움직이는 GIF로 저장하세요.</p>
+          </header>
+
+          {/* 사용법 */}
+          <div className="bg-white rounded-2xl shadow-sm p-4 mb-6 text-sm text-slate-600">
+            <span className="font-bold text-slate-700">사용법: </span>
+            1) GIF 업로드 → 2) "텍스트 추가" 후 캔버스에서 드래그로 위치 잡기 → 3) "움짤 만들기" → 4) GIF 다운로드
+          </div>
+
+          {error && (
+            <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-3 mb-6 text-sm">
+              {error}
+            </div>
+          )}
+
+          <div className="grid lg:grid-cols-3 gap-6">
+            {/* 왼쪽: 미리보기 */}
+            <div className="lg:col-span-2 bg-white rounded-2xl shadow-sm p-4">
+              {!frames ? (
+                <label
+                  onDragOver={e=>{e.preventDefault(); setDragOver(true);}}
+                  onDragLeave={()=>setDragOver(false)}
+                  onDrop={onDrop}
+                  className={"flex flex-col items-center justify-center h-72 sm:h-96 border-2 border-dashed rounded-xl cursor-pointer transition " + (dragOver ? "border-indigo-400 bg-indigo-50" : "border-slate-300 hover:border-indigo-300")}
+                >
+                  {loadingMsg ? (
+                    <div className="flex flex-col items-center text-indigo-600">
+                      <svg className="animate-spin h-8 w-8 mb-3" viewBox="0 0 24 24" fill="none">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"/>
+                      </svg>
+                      <span className="font-semibold">{loadingMsg}</span>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="text-5xl mb-3">🎞️</div>
+                      <p className="font-bold text-slate-700">GIF를 올려주세요</p>
+                      <p className="text-slate-400 text-sm mt-1">클릭하거나 파일을 끌어다 놓으세요</p>
+                      <input type="file" accept="image/gif" className="hidden" onChange={onInputChange} />
+                    </>
+                  )}
+                </label>
+              ) : (
+                <div>
+                  <div ref={wrapRef} className="flex justify-center bg-[repeating-conic-gradient(#e2e8f0_0%_25%,#f8fafc_0%_50%)] bg-[length:24px_24px] rounded-xl p-2 overflow-auto">
+                    <canvas
+                      ref={canvasRef}
+                      className="max-w-full h-auto rounded cursor-move shadow"
+                      style={{ maxHeight: '70vh' }}
+                      onMouseDown={onPointerDown}
+                      onMouseMove={onPointerMove}
+                      onMouseUp={onPointerUp}
+                      onMouseLeave={onPointerUp}
+                      onTouchStart={onPointerDown}
+                      onTouchMove={onPointerMove}
+                      onTouchEnd={onPointerUp}
+                    />
+                  </div>
+                  <div className="flex flex-wrap gap-3 items-center justify-between mt-4">
+                    <div className="text-xs text-slate-500">
+                      원본 {dims.w}×{dims.h}px · {frames.length}프레임 · 첫 프레임에 자막 미리보기
+                    </div>
+                    <div className="flex gap-2">
+                      <label className="px-3 py-2 text-sm rounded-lg bg-slate-100 hover:bg-slate-200 cursor-pointer font-medium text-slate-700">
+                        다른 GIF
+                        <input type="file" accept="image/gif" className="hidden" onChange={onInputChange} />
+                      </label>
+                      <button onClick={buildGif} disabled={building}
+                        className="px-4 py-2 text-sm rounded-lg bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-bold">
+                        {building ? '만드는 중...' : '움짤 만들기'}
+                      </button>
+                    </div>
+                  </div>
+
+                  {building && (
+                    <div className="mt-4">
+                      <div className="flex justify-between text-xs text-slate-500 mb-1">
+                        <span>만드는 중...</span><span>{progress}%</span>
+                      </div>
+                      <div className="w-full bg-slate-200 rounded-full h-2.5">
+                        <div className="bg-indigo-600 h-2.5 rounded-full transition-all" style={{ width: progress+'%' }} />
+                      </div>
+                    </div>
+                  )}
+
+                  {resultUrl && !building && (
+                    <div className="mt-5 border-t pt-4">
+                      <p className="font-bold text-slate-700 mb-2">완성된 움짤 🎉</p>
+                      <div className="flex justify-center bg-slate-50 rounded-xl p-3">
+                        <img src={resultUrl} alt="결과 움짤" className="max-w-full h-auto rounded shadow" style={{ maxHeight:'60vh' }} />
+                      </div>
+                      <a href={resultUrl} download="animated.gif"
+                        className="mt-3 inline-block w-full text-center px-4 py-3 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold">
+                        GIF 다운로드 (animated.gif)
+                      </a>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* 오른쪽: 텍스트 레이어 패널 */}
+            <div className="bg-white rounded-2xl shadow-sm p-4">
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="font-bold text-slate-800">자막 레이어</h2>
+                <button onClick={addLayer} disabled={!frames}
+                  className="px-3 py-1.5 text-sm rounded-lg bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 text-white font-semibold">
+                  + 텍스트 추가
+                </button>
+              </div>
+
+              {!frames ? (
+                <p className="text-sm text-slate-400 py-8 text-center">GIF를 먼저 올려주세요.</p>
+              ) : layers.length === 0 ? (
+                <p className="text-sm text-slate-400 py-8 text-center">아직 자막이 없어요.<br/>"텍스트 추가"를 눌러보세요.</p>
+              ) : (
+                <div className="space-y-2 mb-4">
+                  {layers.map(l => (
+                    <button key={l.id} onClick={()=>setSelectedId(l.id)}
+                      className={"w-full text-left px-3 py-2 rounded-lg border text-sm truncate transition " + (selectedId===l.id ? "border-indigo-500 bg-indigo-50 text-indigo-700 font-semibold" : "border-slate-200 hover:bg-slate-50 text-slate-600")}>
+                      {l.text || '(빈 자막)'}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {selected && (
+                <div className="border-t pt-4 space-y-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-500 mb-1">내용</label>
+                    <textarea rows="2" value={selected.text}
+                      onChange={e=>updateLayer(selected.id,{text:e.target.value})}
+                      className="w-full border border-slate-300 rounded-lg px-2 py-1.5 text-sm focus:ring-2 focus:ring-indigo-400 outline-none" />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-500 mb-1">글자 크기: {selected.size}px</label>
+                    <input type="range" min="10" max={Math.max(200, Math.round(dims.h*0.8))} value={selected.size}
+                      onChange={e=>updateLayer(selected.id,{size:+e.target.value})} className="w-full accent-indigo-600" />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-500 mb-1">글자색</label>
+                      <input type="color" value={selected.color}
+                        onChange={e=>updateLayer(selected.id,{color:e.target.value})}
+                        className="w-full h-9 rounded border border-slate-300" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-500 mb-1">외곽선색</label>
+                      <input type="color" value={selected.strokeColor}
+                        onChange={e=>updateLayer(selected.id,{strokeColor:e.target.value})}
+                        className="w-full h-9 rounded border border-slate-300" />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-500 mb-1">외곽선 두께: {selected.strokeWidth}</label>
+                    <input type="range" min="0" max="12" value={selected.strokeWidth}
+                      onChange={e=>updateLayer(selected.id,{strokeWidth:+e.target.value})} className="w-full accent-indigo-600" />
+                  </div>
+
+                  <div className="flex items-center justify-between pt-1">
+                    <span className="text-xs text-slate-400">Impact · 굵게 고정</span>
+                    <button onClick={()=>removeLayer(selected.id)}
+                      className="px-3 py-1.5 text-sm rounded-lg bg-red-50 hover:bg-red-100 text-red-600 font-semibold">
+                      삭제
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          <footer className="text-center text-xs text-slate-400 mt-8">
+            브라우저 내장 ImageDecoder로 분해 · gif.js로 인코딩 · 최신 Chrome 권장
+          </footer>
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>

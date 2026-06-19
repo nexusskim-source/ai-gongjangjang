@@ -1,0 +1,503 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>짤 메이커 - 이미지 텍스트 생성기</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone@7.23.5/babel.min.js"></script>
+</head>
+<body class="bg-slate-100">
+  <div id="root"></div>
+  <script type="text/babel">
+    const { useState, useRef, useEffect, useCallback } = React;
+
+    const DEFAULT_W = 800;
+    const DEFAULT_H = 600;
+    let idSeq = 1;
+
+    function makeText(canvasW, canvasH) {
+      return {
+        id: idSeq++,
+        text: "텍스트를 입력하세요",
+        x: canvasW / 2,
+        y: canvasH / 2,
+        size: Math.round(canvasH / 12),
+        color: "#ffffff",
+        strokeColor: "#000000",
+        strokeWidth: Math.max(2, Math.round(canvasH / 120)),
+        bold: true,
+      };
+    }
+
+    function App() {
+      const [image, setImage] = useState(null); // HTMLImageElement
+      const [canvasSize, setCanvasSize] = useState({ w: DEFAULT_W, h: DEFAULT_H });
+      const [texts, setTexts] = useState([]);
+      const [selectedId, setSelectedId] = useState(null);
+      const [dragOver, setDragOver] = useState(false);
+      const [error, setError] = useState("");
+      const [loading, setLoading] = useState(false);
+
+      const canvasRef = useRef(null);
+      const wrapRef = useRef(null);
+      const dragState = useRef(null); // {id, offsetX, offsetY}
+
+      const selected = texts.find((t) => t.id === selectedId) || null;
+
+      // ---- 이미지 로딩 ----
+      const loadFile = useCallback((file) => {
+        if (!file) return;
+        if (!file.type.startsWith("image/")) {
+          setError("이미지 파일만 올릴 수 있어요.");
+          return;
+        }
+        setError("");
+        setLoading(true);
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          const img = new Image();
+          img.onload = () => {
+            setImage(img);
+            setCanvasSize({ w: img.naturalWidth, h: img.naturalHeight });
+            setLoading(false);
+          };
+          img.onerror = () => {
+            setError("이미지를 불러오지 못했어요.");
+            setLoading(false);
+          };
+          img.src = e.target.result;
+        };
+        reader.onerror = () => {
+          setError("파일을 읽지 못했어요.");
+          setLoading(false);
+        };
+        reader.readAsDataURL(file);
+      }, []);
+
+      const onFileInput = (e) => {
+        const file = e.target.files && e.target.files[0];
+        loadFile(file);
+        e.target.value = "";
+      };
+
+      const onDrop = (e) => {
+        e.preventDefault();
+        setDragOver(false);
+        const file = e.dataTransfer.files && e.dataTransfer.files[0];
+        loadFile(file);
+      };
+
+      // ---- 텍스트 추가/삭제/수정 ----
+      const addText = () => {
+        const t = makeText(canvasSize.w, canvasSize.h);
+        setTexts((prev) => [...prev, t]);
+        setSelectedId(t.id);
+      };
+
+      const removeText = (id) => {
+        setTexts((prev) => prev.filter((t) => t.id !== id));
+        setSelectedId((cur) => (cur === id ? null : cur));
+      };
+
+      const updateSelected = (patch) => {
+        if (selectedId == null) return;
+        setTexts((prev) =>
+          prev.map((t) => (t.id === selectedId ? { ...t, ...patch } : t))
+        );
+      };
+
+      // ---- 캔버스 렌더링 ----
+      useEffect(() => {
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+        canvas.width = canvasSize.w;
+        canvas.height = canvasSize.h;
+        const ctx = canvas.getContext("2d");
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        if (image) {
+          ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+        } else {
+          // 빈 상태 배경
+          ctx.fillStyle = "#e2e8f0";
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+          ctx.fillStyle = "#94a3b8";
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          ctx.font = "bold " + Math.round(canvas.height / 18) + "px sans-serif";
+          ctx.fillText("이미지를 올려주세요", canvas.width / 2, canvas.height / 2 - canvas.height / 22);
+          ctx.font = Math.round(canvas.height / 28) + "px sans-serif";
+          ctx.fillText("클릭하거나 여기로 드래그", canvas.width / 2, canvas.height / 2 + canvas.height / 22);
+        }
+
+        // 텍스트 그리기
+        texts.forEach((t) => {
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          const weight = t.bold ? "bold " : "";
+          ctx.font = weight + t.size + "px Impact, 'Arial Black', system-ui, sans-serif";
+          ctx.lineJoin = "round";
+          if (t.strokeWidth > 0) {
+            ctx.lineWidth = t.strokeWidth;
+            ctx.strokeStyle = t.strokeColor;
+            ctx.strokeText(t.text, t.x, t.y);
+          }
+          ctx.fillStyle = t.color;
+          ctx.fillText(t.text, t.x, t.y);
+
+          // 선택 표시
+          if (t.id === selectedId) {
+            const m = ctx.measureText(t.text);
+            const w = m.width;
+            const h = t.size;
+            ctx.save();
+            ctx.strokeStyle = "#3b82f6";
+            ctx.lineWidth = Math.max(2, t.size / 30);
+            ctx.setLineDash([8, 6]);
+            ctx.strokeRect(t.x - w / 2 - 8, t.y - h / 2 - 6, w + 16, h + 12);
+            ctx.restore();
+          }
+        });
+      }, [image, canvasSize, texts, selectedId]);
+
+      // ---- 좌표 변환: 화면 좌표 -> 캔버스 원본 좌표 ----
+      const toCanvasCoords = (clientX, clientY) => {
+        const canvas = canvasRef.current;
+        const rect = canvas.getBoundingClientRect();
+        const scaleX = canvas.width / rect.width;
+        const scaleY = canvas.height / rect.height;
+        return {
+          x: (clientX - rect.left) * scaleX,
+          y: (clientY - rect.top) * scaleY,
+        };
+      };
+
+      // 특정 좌표에 있는 텍스트 찾기 (위에 그려진 것 우선)
+      const hitTest = (cx, cy) => {
+        const canvas = canvasRef.current;
+        const ctx = canvas.getContext("2d");
+        for (let i = texts.length - 1; i >= 0; i--) {
+          const t = texts[i];
+          const weight = t.bold ? "bold " : "";
+          ctx.font = weight + t.size + "px Impact, 'Arial Black', system-ui, sans-serif";
+          const w = ctx.measureText(t.text).width;
+          const h = t.size;
+          if (
+            cx >= t.x - w / 2 - 8 &&
+            cx <= t.x + w / 2 + 8 &&
+            cy >= t.y - h / 2 - 8 &&
+            cy <= t.y + h / 2 + 8
+          ) {
+            return t;
+          }
+        }
+        return null;
+      };
+
+      const onPointerDown = (e) => {
+        if (!canvasRef.current) return;
+        const isTouch = e.touches && e.touches.length;
+        const clientX = isTouch ? e.touches[0].clientX : e.clientX;
+        const clientY = isTouch ? e.touches[0].clientY : e.clientY;
+        const { x, y } = toCanvasCoords(clientX, clientY);
+        const hit = hitTest(x, y);
+        if (hit) {
+          setSelectedId(hit.id);
+          dragState.current = { id: hit.id, offsetX: x - hit.x, offsetY: y - hit.y };
+          if (isTouch) e.preventDefault();
+        } else {
+          setSelectedId(null);
+        }
+      };
+
+      const onPointerMove = (e) => {
+        if (!dragState.current) return;
+        const isTouch = e.touches && e.touches.length;
+        const clientX = isTouch ? e.touches[0].clientX : e.clientX;
+        const clientY = isTouch ? e.touches[0].clientY : e.clientY;
+        const { x, y } = toCanvasCoords(clientX, clientY);
+        const ds = dragState.current;
+        setTexts((prev) =>
+          prev.map((t) =>
+            t.id === ds.id ? { ...t, x: x - ds.offsetX, y: y - ds.offsetY } : t
+          )
+        );
+        if (isTouch) e.preventDefault();
+      };
+
+      const onPointerUp = () => {
+        dragState.current = null;
+      };
+
+      useEffect(() => {
+        window.addEventListener("mousemove", onPointerMove);
+        window.addEventListener("mouseup", onPointerUp);
+        window.addEventListener("touchmove", onPointerMove, { passive: false });
+        window.addEventListener("touchend", onPointerUp);
+        return () => {
+          window.removeEventListener("mousemove", onPointerMove);
+          window.removeEventListener("mouseup", onPointerUp);
+          window.removeEventListener("touchmove", onPointerMove);
+          window.removeEventListener("touchend", onPointerUp);
+        };
+      }, [texts]);
+
+      // ---- 다운로드 ----
+      const download = () => {
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+        // 선택 표시 없이 다시 그리기 위해 잠깐 선택 해제 상태로 렌더링
+        const prevSelected = selectedId;
+        setSelectedId(null);
+        // 다음 렌더 이후 캡처
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            canvas.toBlob((blob) => {
+              if (!blob) {
+                setError("다운로드에 실패했어요.");
+                setSelectedId(prevSelected);
+                return;
+              }
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement("a");
+              a.href = url;
+              a.download = "meme.png";
+              document.body.appendChild(a);
+              a.click();
+              document.body.removeChild(a);
+              URL.revokeObjectURL(url);
+              setSelectedId(prevSelected);
+            }, "image/png");
+          });
+        });
+      };
+
+      const fileInputRef = useRef(null);
+
+      return (
+        <div className="min-h-screen p-4 sm:p-6">
+          <div className="max-w-6xl mx-auto">
+            <header className="mb-5 text-center">
+              <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-800">
+                짤 메이커
+              </h1>
+              <p className="text-slate-500 text-sm mt-1">
+                이미지에 텍스트를 얹어 나만의 짤을 만들어 보세요
+              </p>
+            </header>
+
+            {error && (
+              <div className="mb-4 rounded-lg bg-red-100 text-red-700 px-4 py-2 text-sm text-center">
+                {error}
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+              {/* 캔버스 영역 */}
+              <div className="lg:col-span-2">
+                <div className="bg-white rounded-2xl shadow p-4">
+                  <div
+                    ref={wrapRef}
+                    onDragOver={(e) => {
+                      e.preventDefault();
+                      setDragOver(true);
+                    }}
+                    onDragLeave={() => setDragOver(false)}
+                    onDrop={onDrop}
+                    onClick={() => {
+                      if (!image) fileInputRef.current && fileInputRef.current.click();
+                    }}
+                    className={
+                      "relative rounded-xl overflow-hidden border-2 border-dashed transition " +
+                      (dragOver ? "border-blue-400 bg-blue-50" : "border-slate-200")
+                    }
+                  >
+                    {loading && (
+                      <div className="absolute inset-0 z-10 flex items-center justify-center bg-white/70">
+                        <span className="text-slate-600 font-medium animate-pulse">
+                          불러오는 중...
+                        </span>
+                      </div>
+                    )}
+                    <canvas
+                      ref={canvasRef}
+                      onMouseDown={onPointerDown}
+                      onTouchStart={onPointerDown}
+                      className="block w-full h-auto touch-none cursor-move select-none"
+                      style={{ touchAction: "none" }}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* 컨트롤 영역 */}
+              <div className="space-y-4">
+                {/* 파일 / 다운로드 */}
+                <div className="bg-white rounded-2xl shadow p-4 space-y-3">
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*"
+                    onChange={onFileInput}
+                    className="hidden"
+                  />
+                  <button
+                    onClick={() => fileInputRef.current && fileInputRef.current.click()}
+                    className="w-full bg-slate-800 hover:bg-slate-700 text-white font-semibold rounded-lg py-2.5 transition"
+                  >
+                    이미지 불러오기
+                  </button>
+                  <button
+                    onClick={addText}
+                    className="w-full bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded-lg py-2.5 transition"
+                  >
+                    + 텍스트 추가
+                  </button>
+                  <button
+                    onClick={download}
+                    className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-semibold rounded-lg py-2.5 transition"
+                  >
+                    이미지 다운로드 (PNG)
+                  </button>
+                </div>
+
+                {/* 텍스트 목록 */}
+                <div className="bg-white rounded-2xl shadow p-4">
+                  <h2 className="font-bold text-slate-700 mb-2 text-sm">텍스트 목록</h2>
+                  {texts.length === 0 ? (
+                    <p className="text-slate-400 text-sm py-2">
+                      아직 텍스트가 없어요. "텍스트 추가"를 눌러 보세요.
+                    </p>
+                  ) : (
+                    <ul className="space-y-1.5 max-h-40 overflow-auto">
+                      {texts.map((t) => (
+                        <li
+                          key={t.id}
+                          onClick={() => setSelectedId(t.id)}
+                          className={
+                            "flex items-center justify-between gap-2 rounded-lg px-3 py-2 text-sm cursor-pointer " +
+                            (t.id === selectedId
+                              ? "bg-blue-100 text-blue-800"
+                              : "bg-slate-50 hover:bg-slate-100 text-slate-700")
+                          }
+                        >
+                          <span className="truncate">{t.text || "(빈 텍스트)"}</span>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              removeText(t.id);
+                            }}
+                            className="text-red-500 hover:text-red-700 font-bold shrink-0"
+                          >
+                            삭제
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+
+                {/* 선택 텍스트 편집 */}
+                {selected && (
+                  <div className="bg-white rounded-2xl shadow p-4 space-y-3">
+                    <h2 className="font-bold text-slate-700 text-sm">텍스트 편집</h2>
+
+                    <div>
+                      <label className="block text-xs text-slate-500 mb-1">내용</label>
+                      <input
+                        type="text"
+                        value={selected.text}
+                        onChange={(e) => updateSelected({ text: e.target.value })}
+                        className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs text-slate-500 mb-1">
+                        글자 크기: {selected.size}px
+                      </label>
+                      <input
+                        type="range"
+                        min="10"
+                        max="300"
+                        value={selected.size}
+                        onChange={(e) => updateSelected({ size: Number(e.target.value) })}
+                        className="w-full"
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs text-slate-500 mb-1">글자 색</label>
+                        <input
+                          type="color"
+                          value={selected.color}
+                          onChange={(e) => updateSelected({ color: e.target.value })}
+                          className="w-full h-9 rounded border border-slate-300"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-slate-500 mb-1">외곽선 색</label>
+                        <input
+                          type="color"
+                          value={selected.strokeColor}
+                          onChange={(e) => updateSelected({ strokeColor: e.target.value })}
+                          className="w-full h-9 rounded border border-slate-300"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs text-slate-500 mb-1">
+                        외곽선 두께: {selected.strokeWidth}px
+                      </label>
+                      <input
+                        type="range"
+                        min="0"
+                        max="20"
+                        value={selected.strokeWidth}
+                        onChange={(e) =>
+                          updateSelected({ strokeWidth: Number(e.target.value) })
+                        }
+                        className="w-full"
+                      />
+                    </div>
+
+                    <label className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={selected.bold}
+                        onChange={(e) => updateSelected({ bold: e.target.checked })}
+                        className="w-4 h-4"
+                      />
+                      굵게 (Bold)
+                    </label>
+                  </div>
+                )}
+
+                {/* 사용법 */}
+                <div className="bg-amber-50 rounded-2xl p-4 text-xs text-amber-800 leading-relaxed">
+                  <b>사용법</b>
+                  <br />
+                  1. 이미지를 올리거나 캔버스로 드래그
+                  <br />
+                  2. "텍스트 추가" 후 내용/색/크기 편집
+                  <br />
+                  3. 캔버스 위 텍스트를 드래그해 위치 이동
+                  <br />
+                  4. "이미지 다운로드"로 PNG 저장
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+  </script>
+</body>
+</html>
