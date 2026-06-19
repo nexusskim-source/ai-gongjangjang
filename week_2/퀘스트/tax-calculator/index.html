@@ -224,46 +224,110 @@
     }
 
     // ===== 3. 연봉 실수령액 =====
-    // 간이 근로소득세: 대략적 추정 (월 과세표준 기준 누진 근사)
-    function estimateMonthlyIncomeTax(monthlyTaxable) {
-      // 4대보험 공제 후 과세대상 근로소득 월액 기준 대략 추정
-      const annual = monthlyTaxable * 12;
-      // 근로소득공제 매우 단순화: 과세표준을 대략 연봉의 70% 가정 후 누진 적용
-      const roughBase = annual * 0.7 - 1500000;
-      if (roughBase <= 0) return 0;
-      const b = TAX_BRACKETS.find((x) => roughBase <= x.upTo);
-      const annualTax = Math.max(0, roughBase * b.rate - b.deduct);
-      return (annualTax / 12);
+    // 국세청 근로소득 간이세액표 정식 산식 (연 환산 후 ÷12)
+    // [1] 근로소득공제 (최대 2,000만원 한도)
+    function earnedIncomeDeduction(annual) {
+      let d;
+      if (annual <= 5000000) d = annual * 0.7;
+      else if (annual <= 15000000) d = 3500000 + (annual - 5000000) * 0.4;
+      else if (annual <= 45000000) d = 7500000 + (annual - 15000000) * 0.15;
+      else if (annual <= 100000000) d = 12000000 + (annual - 45000000) * 0.05;
+      else d = 14750000 + (annual - 100000000) * 0.02;
+      return Math.min(d, 20000000);
+    }
+
+    // [7] 산출세액: 기본세율(TAX_BRACKETS) 적용
+    function calcProgressiveTax(taxBase) {
+      if (taxBase <= 0) return 0;
+      const b = TAX_BRACKETS.find((x) => taxBase <= x.upTo);
+      return Math.max(0, taxBase * b.rate - b.deduct);
+    }
+
+    // [8] 근로소득세액공제 (한도는 annual 기준)
+    function earnedIncomeTaxCredit(computedTax, annual) {
+      let credit;
+      if (computedTax <= 1300000) credit = computedTax * 0.55;
+      else credit = 715000 + (computedTax - 1300000) * 0.30;
+      let limit;
+      if (annual <= 33000000) limit = 740000;
+      else if (annual <= 70000000) limit = Math.max(660000, 740000 - (annual - 33000000) * 0.008);
+      else if (annual <= 120000000) limit = Math.max(500000, 660000 - (annual - 70000000) * 0.5);
+      else limit = Math.max(200000, 500000 - (annual - 120000000) * 0.5);
+      return Math.min(credit, limit);
+    }
+
+    // [9] 자녀세액공제 (8~20세 자녀 수, 연)
+    function childTaxCredit(children) {
+      if (children <= 0) return 0;
+      if (children === 1) return 150000;
+      if (children === 2) return 350000;
+      return 350000 + (children - 2) * 300000;
     }
 
     function SalaryCalc() {
       const [val, setVal] = useState('');
       const [dependents, setDependents] = useState('1');
+      const [children, setChildren] = useState('0');
+      const [withholdRate, setWithholdRate] = useState('100'); // 80 / 100 / 120
       const annual = toNum(val);
 
       const result = useMemo(() => {
         if (annual === null || annual === 0) return null;
         const monthly = annual / 12;
 
+        // 4대보험 본인부담 월액
         const pension = monthly * 0.045;          // 국민연금 4.5%
         const health = monthly * 0.03545;         // 건강보험 3.545%
         const care = health * 0.1295;             // 장기요양 = 건보의 12.95%
         const employment = monthly * 0.009;       // 고용보험 0.9%
-
         const insuranceTotal = pension + health + care + employment;
 
-        // 근로소득세 간이 추정 (부양가족 수로 약간 조정)
-        const monthlyTaxable = monthly - insuranceTotal;
-        let incomeTax = estimateMonthlyIncomeTax(monthlyTaxable);
+        // 4대보험 본인부담 연액 (간이세액표 산식에 재사용)
+        const pensionYear = pension * 12;
+        const healthYear = health * 12;
+        const careYear = care * 12;
+        const employmentYear = employment * 12;
+
+        // [1] 근로소득공제
+        const incDeduction = earnedIncomeDeduction(annual);
+        // [2] 근로소득금액
+        const earnedIncomeAmount = annual - incDeduction;
+        // [3] 인적공제
         const dep = Math.max(1, Number(dependents) || 1);
-        incomeTax = incomeTax * Math.max(0, 1 - (dep - 1) * 0.08); // 부양가족 1인당 약 8% 경감(근사)
-        const localTax = incomeTax * 0.1;         // 지방소득세 10%
+        const personalDeduction = dep * 1500000;
+        // [4] 연금보험료공제 = 국민연금 본인부담 연액
+        const pensionDeduction = pensionYear;
+        // [5] 특별소득공제 = 건강 + 장기요양 + 고용 본인부담 연액
+        const specialDeduction = healthYear + careYear + employmentYear;
+        // [6] 과세표준
+        const taxBase = Math.max(0, earnedIncomeAmount - personalDeduction - pensionDeduction - specialDeduction);
+        // [7] 산출세액
+        const computedTax = calcProgressiveTax(taxBase);
+        // [8] 근로소득세액공제
+        const eitc = earnedIncomeTaxCredit(computedTax, annual);
+        // [9] 자녀세액공제
+        const childCnt = Math.max(0, Number(children) || 0);
+        const ctc = childTaxCredit(childCnt);
+        // [10] 결정세액(연)
+        const decidedTax = Math.max(0, computedTax - eitc - ctc);
+        // [11] 월 근로소득세(100% 기준)
+        const monthlyTax100 = decidedTax / 12;
+        // [12] 원천징수 비율 적용
+        const ratio = (Number(withholdRate) || 100) / 100;
+        const incomeTax = monthlyTax100 * ratio;
+        // [13] 지방소득세 = 월 근로소득세 × 10%
+        const localTax = incomeTax * 0.1;
 
         const totalDeduction = insuranceTotal + incomeTax + localTax;
         const netMonthly = monthly - totalDeduction;
 
-        return { monthly, pension, health, care, employment, insuranceTotal, incomeTax, localTax, totalDeduction, netMonthly };
-      }, [annual, dependents]);
+        return {
+          monthly, pension, health, care, employment, insuranceTotal,
+          incDeduction, earnedIncomeAmount, personalDeduction, pensionDeduction,
+          specialDeduction, taxBase, computedTax, eitc, ctc, decidedTax,
+          incomeTax, localTax, totalDeduction, netMonthly,
+        };
+      }, [annual, dependents, children, withholdRate]);
 
       return (
         <div>
@@ -280,6 +344,27 @@
               className="w-full py-3 px-3 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-400">
               {[1,2,3,4,5,6].map(n => <option key={n} value={n}>{n}명</option>)}
             </select>
+          </div>
+
+          <div className="mt-3">
+            <label className="block text-sm font-medium text-slate-700 mb-1">8~20세 자녀 수</label>
+            <select value={children} onChange={(e) => setChildren(e.target.value)}
+              className="w-full py-3 px-3 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-400">
+              {[0,1,2,3,4,5,6].map(n => <option key={n} value={n}>{n}명</option>)}
+            </select>
+          </div>
+
+          <div className="mt-3">
+            <label className="block text-sm font-medium text-slate-700 mb-1">원천징수 비율</label>
+            <div className="flex bg-slate-100 rounded-xl p-1 text-sm">
+              {['80','100','120'].map(r => (
+                <button key={r} onClick={() => setWithholdRate(r)}
+                  className={"flex-1 py-2 rounded-lg font-medium transition " + (withholdRate === r ? "bg-white shadow text-indigo-600" : "text-slate-500")}>
+                  {r}%
+                </button>
+              ))}
+            </div>
+            <p className="text-xs text-slate-400 mt-1">80% 선택 시 국세청 공식 간이세액표에 더 가깝습니다.</p>
           </div>
 
           <div className="mt-5">
@@ -308,7 +393,7 @@
                           ['건강보험', '3.545%', result.health],
                           ['장기요양', '건보×12.95%', result.care],
                           ['고용보험', '0.9%', result.employment],
-                          ['근로소득세', '간이추정', result.incomeTax],
+                          ['근로소득세', '간이세액표', result.incomeTax],
                           ['지방소득세', '소득세×10%', result.localTax],
                         ].map((r, i) => (
                           <tr key={i}>
@@ -329,7 +414,7 @@
               )}
           </div>
 
-          <Notice>2024년 4대보험 요율 기준입니다. <b>근로소득세는 간이 추정치</b>로 실제 간이세액표·연말정산 결과와 차이가 있을 수 있습니다.</Notice>
+          <Notice>국세청 근로소득 간이세액표 산식(근로소득공제·인적공제·연금/특별소득공제·근로소득세액공제·자녀공제 반영)을 적용한 추정치이며, 표준세액공제 등 일부 단순화로 공식 표와 소폭 차이가 날 수 있습니다. 80% 비율 선택 시 공식 표에 더 가깝습니다.</Notice>
         </div>
       );
     }
