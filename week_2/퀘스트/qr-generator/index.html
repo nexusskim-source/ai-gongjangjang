@@ -1,0 +1,483 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>QR 코드 생성기</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js"></script>
+  <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone@7.23.5/babel.min.js"></script>
+</head>
+<body class="bg-slate-100">
+  <div id="root"></div>
+  <script type="text/babel">
+    const { useState, useRef, useEffect, useCallback } = React;
+
+    const QR_TYPES = [
+      { id: "text", label: "텍스트/URL" },
+      { id: "tel", label: "전화" },
+      { id: "email", label: "이메일" },
+      { id: "wifi", label: "WiFi" },
+      { id: "account", label: "계좌번호" },
+    ];
+
+    // 천단위 콤마: 숫자만 추출해 콤마 포맷 (빈 값이면 빈 문자열)
+    function formatAmount(raw) {
+      const digits = String(raw).replace(/[^0-9]/g, "");
+      if (!digits) return "";
+      return digits.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+    }
+
+    const ECC_LEVELS = [
+      { id: "L", label: "L (약 7%)" },
+      { id: "M", label: "M (약 15%)" },
+      { id: "Q", label: "Q (약 25%)" },
+      { id: "H", label: "H (약 30%)" },
+    ];
+
+    // qrcode-generator로 캔버스에 직접 QR을 그린다 (한글은 UTF-8 Byte 모드)
+    function renderQR(canvas, text, opts) {
+      // opts = { size, margin, ecc('L'|'M'|'Q'|'H'), dark, light }
+      qrcode.stringToBytes = qrcode.stringToBytesFuncs['UTF-8']; // 한글 등 UTF-8 지원
+      const qr = qrcode(0, opts.ecc);     // 0 = 타입 자동 결정
+      qr.addData(text, 'Byte');           // Byte 모드(UTF-8)
+      qr.make();
+      const count = qr.getModuleCount();
+      const marginCells = opts.margin;    // 모듈 단위 여백(기본 4)
+      const total = count + marginCells * 2;
+      const cell = Math.max(1, Math.floor(opts.size / total));
+      const px = cell * total;
+      canvas.width = px;
+      canvas.height = px;
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = opts.light;
+      ctx.fillRect(0, 0, px, px);
+      ctx.fillStyle = opts.dark;
+      for (let r = 0; r < count; r++)
+        for (let c = 0; c < count; c++)
+          if (qr.isDark(r, c))
+            ctx.fillRect((c + marginCells) * cell, (r + marginCells) * cell, cell, cell);
+    }
+
+    // 입력값 + 종류 -> 실제 QR에 인코딩할 문자열로 변환
+    function buildPayload(type, state) {
+      if (type === "text") {
+        return state.text.trim();
+      }
+      if (type === "tel") {
+        const num = state.tel.trim();
+        return num ? "tel:" + num : "";
+      }
+      if (type === "email") {
+        const addr = state.email.trim();
+        return addr ? "mailto:" + addr : "";
+      }
+      if (type === "wifi") {
+        const ssid = state.wifiSsid.trim();
+        if (!ssid) return "";
+        if (state.wifiAuth === "nopass") {
+          return "WIFI:T:nopass;S:" + ssid + ";;";
+        }
+        return "WIFI:T:WPA;S:" + ssid + ";P:" + state.wifiPw + ";;";
+      }
+      if (type === "account") {
+        const bank = state.accBank.trim();
+        const num = state.accNumber.trim();
+        const holder = state.accHolder.trim();
+        const amount = formatAmount(state.accAmount); // 콤마 포함 (빈 값이면 "")
+        // 4개 항목이 모두 비어있으면 빈 상태로 처리
+        if (!bank && !num && !holder && !amount) return "";
+        const lines = ["[계좌이체]"];
+        if (bank) lines.push("은행: " + bank);
+        if (num) lines.push("계좌번호: " + num);
+        if (holder) lines.push("예금주: " + holder);
+        if (amount) lines.push("금액: " + amount + "원");
+        return lines.join("\n");
+      }
+      return "";
+    }
+
+    function Section({ title, children }) {
+      return (
+        <div className="space-y-2">
+          <h3 className="text-sm font-semibold text-slate-700">{title}</h3>
+          {children}
+        </div>
+      );
+    }
+
+    function App() {
+      const [type, setType] = useState("text");
+      const [state, setState] = useState({
+        text: "",
+        tel: "",
+        email: "",
+        wifiSsid: "",
+        wifiPw: "",
+        wifiAuth: "WPA",
+        accBank: "",
+        accNumber: "",
+        accHolder: "",
+        accAmount: "",
+      });
+      const [width, setWidth] = useState(256);
+      const [margin, setMargin] = useState(4);
+      const [ecc, setEcc] = useState("M");
+      const [dark, setDark] = useState("#000000");
+      const [light, setLight] = useState("#ffffff");
+      const [error, setError] = useState("");
+
+      const canvasRef = useRef(null);
+      const payload = buildPayload(type, state);
+
+      const update = (key, val) => setState((s) => ({ ...s, [key]: val }));
+
+      useEffect(() => {
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+        if (!payload) {
+          // 빈 상태: 캔버스 비우기
+          const ctx = canvas.getContext("2d");
+          ctx && ctx.clearRect(0, 0, canvas.width, canvas.height);
+          setError("");
+          return;
+        }
+        try {
+          renderQR(canvas, payload, {
+            size: width,
+            margin: margin,
+            ecc: ecc,
+            dark: dark,
+            light: light,
+          });
+          setError("");
+        } catch (err) {
+          setError("QR 생성에 실패했습니다: " + (err && err.message ? err.message : err));
+        }
+      }, [payload, width, margin, ecc, dark, light]);
+
+      const handleDownload = useCallback(() => {
+        const canvas = canvasRef.current;
+        if (!canvas || !payload) return;
+        try {
+          const url = canvas.toDataURL("image/png");
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = "qrcode.png";
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+        } catch (e) {
+          setError("다운로드에 실패했습니다.");
+        }
+      }, [payload]);
+
+      const hasContent = !!payload;
+
+      return (
+        <div className="min-h-screen py-8 px-4">
+          <div className="max-w-5xl mx-auto">
+            <header className="mb-6 text-center">
+              <h1 className="text-2xl sm:text-3xl font-bold text-slate-800">QR 코드 생성기</h1>
+              <p className="mt-1 text-sm text-slate-500">
+                내용을 입력하면 실시간으로 QR이 만들어집니다. 종류를 바꾸고, 색·크기를 조절한 뒤 PNG로 저장하세요.
+              </p>
+            </header>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {/* 왼쪽: 입력 + 옵션 */}
+              <div className="bg-white rounded-2xl shadow-sm p-6 space-y-6">
+                {/* 종류 선택 */}
+                <div className="flex flex-wrap gap-2">
+                  {QR_TYPES.map((t) => (
+                    <button
+                      key={t.id}
+                      onClick={() => setType(t.id)}
+                      className={
+                        "px-4 py-2 rounded-lg text-sm font-medium transition " +
+                        (type === t.id
+                          ? "bg-indigo-600 text-white shadow"
+                          : "bg-slate-100 text-slate-600 hover:bg-slate-200")
+                      }
+                    >
+                      {t.label}
+                    </button>
+                  ))}
+                </div>
+
+                {/* 종류별 입력칸 */}
+                {type === "text" && (
+                  <Section title="내용 입력">
+                    <textarea
+                      value={state.text}
+                      onChange={(e) => update("text", e.target.value)}
+                      rows={5}
+                      placeholder="URL이나 텍스트를 입력하세요 (예: https://example.com)"
+                      className="w-full rounded-lg border border-slate-300 p-3 text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none resize-y"
+                    />
+                  </Section>
+                )}
+
+                {type === "tel" && (
+                  <Section title="전화번호">
+                    <input
+                      type="tel"
+                      value={state.tel}
+                      onChange={(e) => update("tel", e.target.value)}
+                      placeholder="예: 010-1234-5678"
+                      className="w-full rounded-lg border border-slate-300 p-3 text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
+                    />
+                    <p className="text-xs text-slate-400">스캔하면 바로 전화 걸기 화면이 열립니다.</p>
+                  </Section>
+                )}
+
+                {type === "email" && (
+                  <Section title="이메일 주소">
+                    <input
+                      type="email"
+                      value={state.email}
+                      onChange={(e) => update("email", e.target.value)}
+                      placeholder="예: hello@example.com"
+                      className="w-full rounded-lg border border-slate-300 p-3 text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
+                    />
+                    <p className="text-xs text-slate-400">스캔하면 메일 작성 화면이 열립니다.</p>
+                  </Section>
+                )}
+
+                {type === "wifi" && (
+                  <Section title="WiFi 정보">
+                    <div className="space-y-3">
+                      <div>
+                        <label className="block text-xs text-slate-500 mb-1">네트워크 이름 (SSID)</label>
+                        <input
+                          type="text"
+                          value={state.wifiSsid}
+                          onChange={(e) => update("wifiSsid", e.target.value)}
+                          placeholder="예: MyHomeWiFi"
+                          className="w-full rounded-lg border border-slate-300 p-3 text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-slate-500 mb-1">보안 방식</label>
+                        <select
+                          value={state.wifiAuth}
+                          onChange={(e) => update("wifiAuth", e.target.value)}
+                          className="w-full rounded-lg border border-slate-300 p-3 text-sm bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
+                        >
+                          <option value="WPA">WPA/WPA2</option>
+                          <option value="nopass">없음 (공개)</option>
+                        </select>
+                      </div>
+                      {state.wifiAuth === "WPA" && (
+                        <div>
+                          <label className="block text-xs text-slate-500 mb-1">비밀번호</label>
+                          <input
+                            type="text"
+                            value={state.wifiPw}
+                            onChange={(e) => update("wifiPw", e.target.value)}
+                            placeholder="WiFi 비밀번호"
+                            className="w-full rounded-lg border border-slate-300 p-3 text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
+                          />
+                        </div>
+                      )}
+                      <p className="text-xs text-slate-400">스캔하면 해당 WiFi에 자동 연결됩니다.</p>
+                    </div>
+                  </Section>
+                )}
+
+                {type === "account" && (
+                  <Section title="계좌 정보">
+                    <div className="space-y-3">
+                      <div>
+                        <label className="block text-xs text-slate-500 mb-1">은행명</label>
+                        <input
+                          type="text"
+                          value={state.accBank}
+                          onChange={(e) => update("accBank", e.target.value)}
+                          placeholder="예: 국민은행"
+                          className="w-full rounded-lg border border-slate-300 p-3 text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-slate-500 mb-1">계좌번호</label>
+                        <input
+                          type="text"
+                          value={state.accNumber}
+                          onChange={(e) => update("accNumber", e.target.value)}
+                          placeholder="예: 123-456-7890"
+                          className="w-full rounded-lg border border-slate-300 p-3 text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-slate-500 mb-1">예금주명</label>
+                        <input
+                          type="text"
+                          value={state.accHolder}
+                          onChange={(e) => update("accHolder", e.target.value)}
+                          placeholder="예: 홍길동"
+                          className="w-full rounded-lg border border-slate-300 p-3 text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-slate-500 mb-1">금액 (선택)</label>
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          value={formatAmount(state.accAmount)}
+                          onChange={(e) => update("accAmount", e.target.value.replace(/[^0-9]/g, ""))}
+                          placeholder="예: 10,000"
+                          className="w-full rounded-lg border border-slate-300 p-3 text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
+                        />
+                      </div>
+                      <p className="text-xs text-slate-400">스캔하면 계좌 정보가 텍스트로 표시됩니다 (은행 앱 자동 송금은 아닙니다).</p>
+                    </div>
+                  </Section>
+                )}
+
+                <hr className="border-slate-100" />
+
+                {/* 옵션 */}
+                <Section title="옵션">
+                  <div className="space-y-5">
+                    {/* 크기 */}
+                    <div>
+                      <div className="flex justify-between text-xs text-slate-500 mb-1">
+                        <span>크기 (width)</span>
+                        <span>{width}px</span>
+                      </div>
+                      <input
+                        type="range"
+                        min={128}
+                        max={512}
+                        step={8}
+                        value={width}
+                        onChange={(e) => setWidth(Number(e.target.value))}
+                        className="w-full accent-indigo-600"
+                      />
+                    </div>
+
+                    {/* 여백 */}
+                    <div>
+                      <div className="flex justify-between text-xs text-slate-500 mb-1">
+                        <span>여백 (margin)</span>
+                        <span>{margin}</span>
+                      </div>
+                      <input
+                        type="range"
+                        min={0}
+                        max={10}
+                        step={1}
+                        value={margin}
+                        onChange={(e) => setMargin(Number(e.target.value))}
+                        className="w-full accent-indigo-600"
+                      />
+                    </div>
+
+                    {/* 오차 보정 */}
+                    <div>
+                      <label className="block text-xs text-slate-500 mb-1">오차 보정 레벨</label>
+                      <div className="flex gap-2">
+                        {ECC_LEVELS.map((l) => (
+                          <button
+                            key={l.id}
+                            onClick={() => setEcc(l.id)}
+                            className={
+                              "flex-1 px-2 py-2 rounded-lg text-xs font-medium transition " +
+                              (ecc === l.id
+                                ? "bg-indigo-600 text-white"
+                                : "bg-slate-100 text-slate-600 hover:bg-slate-200")
+                            }
+                          >
+                            {l.id}
+                          </button>
+                        ))}
+                      </div>
+                      <p className="text-xs text-slate-400 mt-1">
+                        H일수록 일부 손상·로고 삽입에 강하지만, 패턴이 더 조밀해집니다.
+                      </p>
+                    </div>
+
+                    {/* 색상 */}
+                    <div className="flex gap-4">
+                      <div className="flex-1">
+                        <label className="block text-xs text-slate-500 mb-1">QR 색 (dark)</label>
+                        <input
+                          type="color"
+                          value={dark}
+                          onChange={(e) => setDark(e.target.value)}
+                          className="w-full h-10 rounded-lg border border-slate-300 cursor-pointer"
+                        />
+                      </div>
+                      <div className="flex-1">
+                        <label className="block text-xs text-slate-500 mb-1">배경색 (light)</label>
+                        <input
+                          type="color"
+                          value={light}
+                          onChange={(e) => setLight(e.target.value)}
+                          className="w-full h-10 rounded-lg border border-slate-300 cursor-pointer"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </Section>
+              </div>
+
+              {/* 오른쪽: 미리보기 */}
+              <div className="bg-white rounded-2xl shadow-sm p-6 flex flex-col">
+                <h3 className="text-sm font-semibold text-slate-700 mb-4">미리보기</h3>
+
+                <div className="flex-1 flex items-center justify-center min-h-[280px] rounded-xl bg-slate-50 border border-dashed border-slate-200 p-4">
+                  {hasContent ? (
+                    <canvas ref={canvasRef} className="max-w-full h-auto rounded" />
+                  ) : (
+                    <div className="text-center text-slate-400">
+                      <div className="text-5xl mb-3">▦</div>
+                      <p className="text-sm">내용을 입력하면 QR이 생성됩니다</p>
+                    </div>
+                  )}
+                  {/* 빈 상태에서도 canvas는 마운트되어 있어야 ref가 유지되므로 숨겨 둠 */}
+                  {!hasContent && <canvas ref={canvasRef} className="hidden" />}
+                </div>
+
+                {error && (
+                  <div className="mt-4 rounded-lg bg-red-50 border border-red-200 text-red-600 text-sm px-3 py-2">
+                    {error}
+                  </div>
+                )}
+
+                <button
+                  onClick={handleDownload}
+                  disabled={!hasContent}
+                  className={
+                    "mt-4 w-full py-3 rounded-xl font-semibold text-sm transition " +
+                    (hasContent
+                      ? "bg-indigo-600 text-white hover:bg-indigo-700 shadow"
+                      : "bg-slate-200 text-slate-400 cursor-not-allowed")
+                  }
+                >
+                  PNG 다운로드
+                </button>
+
+                <div className="mt-5 text-xs text-slate-400 leading-relaxed">
+                  <p className="font-semibold text-slate-500 mb-1">사용법</p>
+                  <p>1. 위에서 종류를 고르고 내용을 입력하세요.</p>
+                  <p>2. 크기·색·여백·오차 보정을 취향대로 조절합니다.</p>
+                  <p>3. "PNG 다운로드"로 이미지를 저장하세요.</p>
+                </div>
+              </div>
+            </div>
+
+            <footer className="text-center text-xs text-slate-400 mt-8">
+              QR 코드는 입력 즉시 브라우저에서 생성됩니다. 외부로 전송되지 않습니다.
+            </footer>
+          </div>
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+  </script>
+</body>
+</html>

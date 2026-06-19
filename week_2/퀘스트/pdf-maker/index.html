@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>한글 문서 PDF 만들기</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone@7.23.5/babel.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/mammoth@1.6.0/mammoth.browser.min.js"></script>
+  <style>
+    .doc-font { font-family: system-ui, 'Malgun Gothic', 'Apple SD Gothic Neo', sans-serif; }
+  </style>
+</head>
+<body class="bg-slate-100">
+  <div id="root"></div>
+  <script type="text/babel">
+    const { useState, useRef, useCallback } = React;
+
+    // 미리보기에서 캡처할 A4 비율 문서
+    function DocPreview({ title, body, fontSize, docRef }) {
+      const isEmpty = !title.trim() && !body.trim();
+      return (
+        <div
+          ref={docRef}
+          className="doc-font bg-white shadow-inner mx-auto"
+          style={{
+            width: '100%',
+            maxWidth: '595px',          // A4 가로(px) 느낌
+            minHeight: '842px',         // A4 세로 비율
+            padding: '48px 44px',
+            boxSizing: 'border-box',
+            color: '#111827',
+          }}
+        >
+          {isEmpty ? (
+            <div className="text-slate-300 text-center mt-40 select-none">
+              <div className="text-5xl mb-4">📄</div>
+              <p className="text-base">제목과 본문을 입력하면<br/>여기에 문서가 보여요.</p>
+            </div>
+          ) : (
+            <>
+              {title.trim() && (
+                <h1 style={{ fontSize: (fontSize + 8) + 'pt', fontWeight: 700, lineHeight: 1.3, marginBottom: '20px', wordBreak: 'break-word' }}>
+                  {title}
+                </h1>
+              )}
+              <div
+                style={{
+                  whiteSpace: 'pre-wrap',
+                  wordBreak: 'break-word',
+                  fontSize: fontSize + 'pt',
+                  lineHeight: 1.7,
+                }}
+              >
+                {body}
+              </div>
+            </>
+          )}
+        </div>
+      );
+    }
+
+    function App() {
+      const [title, setTitle] = useState('');
+      const [body, setBody] = useState('');
+      const [fontSize, setFontSize] = useState(13);
+      const [loading, setLoading] = useState(false);
+      const [notice, setNotice] = useState(null); // {type:'info'|'error', msg}
+      const docRef = useRef(null);
+      const fileInputRef = useRef(null);
+
+      const canDownload = (title.trim() || body.trim()) && !loading;
+
+      const showNotice = (type, msg) => setNotice({ type, msg });
+
+      const handleFile = useCallback(async (e) => {
+        const file = e.target.files && e.target.files[0];
+        if (!file) return;
+        const name = file.name;
+        const dot = name.lastIndexOf('.');
+        const ext = (dot >= 0 ? name.slice(dot + 1) : '').toLowerCase();
+        const baseName = dot >= 0 ? name.slice(0, dot) : name;
+        setNotice(null);
+
+        try {
+          if (ext === 'txt') {
+            const text = await file.text();
+            setTitle((t) => t || baseName);
+            setBody(text);
+            showNotice('info', `텍스트 파일을 불러왔어요: ${name}`);
+          } else if (ext === 'docx') {
+            setLoading(true);
+            const arrayBuffer = await file.arrayBuffer();
+            const result = await window.mammoth.extractRawText({ arrayBuffer });
+            setTitle((t) => t || baseName);
+            setBody(result.value || '');
+            showNotice('info', `Word(.docx)에서 텍스트만 추출했어요. 표·이미지 등 서식은 단순화됩니다.`);
+          } else if (ext === 'hwp') {
+            showNotice('error', "한글(.hwp)은 브라우저에서 직접 변환할 수 없어요. 한글 프로그램에서 'PDF로 저장'하거나 .docx/.txt로 저장한 뒤 올려주세요.");
+          } else {
+            showNotice('error', `지원하지 않는 형식이에요 (.${ext || '?'}). .txt 또는 .docx 파일을 올려주세요.`);
+          }
+        } catch (err) {
+          showNotice('error', '파일을 읽는 중 오류가 발생했어요: ' + (err && err.message ? err.message : err));
+        } finally {
+          setLoading(false);
+          if (fileInputRef.current) fileInputRef.current.value = '';
+        }
+      }, []);
+
+      async function makePdf(targetEl, filename) {
+        const canvas = await html2canvas(targetEl, { scale: 2, backgroundColor: '#ffffff' });
+        const { jsPDF } = window.jspdf;
+        const pdf = new jsPDF('p', 'mm', 'a4');
+        const pageW = pdf.internal.pageSize.getWidth();
+        const pageH = pdf.internal.pageSize.getHeight();
+        const margin = 10;
+        const imgW = pageW - margin * 2;
+        const imgH = canvas.height * imgW / canvas.width;
+        const imgData = canvas.toDataURL('image/png');
+        let heightLeft = imgH;
+        let position = margin;
+        pdf.addImage(imgData, 'PNG', margin, position, imgW, imgH);
+        heightLeft -= (pageH - margin * 2);
+        while (heightLeft > 0) {
+          position = margin - (imgH - heightLeft);
+          pdf.addPage();
+          pdf.addImage(imgData, 'PNG', margin, position, imgW, imgH);
+          heightLeft -= (pageH - margin * 2);
+        }
+        pdf.save(filename);
+      }
+
+      const handleDownload = async () => {
+        if (!canDownload || !docRef.current) return;
+        setNotice(null);
+        setLoading(true);
+        try {
+          const safe = title.trim() ? title.trim().replace(/[\\/:*?"<>|]/g, '_') : 'document';
+          await makePdf(docRef.current, safe + '.pdf');
+          showNotice('info', 'PDF 저장이 완료됐어요.');
+        } catch (err) {
+          showNotice('error', 'PDF 생성 중 오류가 발생했어요: ' + (err && err.message ? err.message : err));
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      return (
+        <div className="min-h-screen">
+          <header className="bg-white border-b border-slate-200">
+            <div className="max-w-6xl mx-auto px-4 py-4">
+              <h1 className="text-xl sm:text-2xl font-bold text-slate-800">📄 한글 문서 PDF 만들기</h1>
+              <p className="text-sm text-slate-500 mt-1">
+                직접 입력하거나 파일(.txt/.docx)을 올려 미리보고, 한글이 안 깨지는 PDF로 저장하세요.
+              </p>
+            </div>
+          </header>
+
+          <main className="max-w-6xl mx-auto px-4 py-6 grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* 왼쪽: 편집 영역 */}
+            <section className="bg-white rounded-2xl shadow-sm border border-slate-200 p-5 sm:p-6 flex flex-col">
+              <h2 className="text-base font-semibold text-slate-700 mb-4">✏️ 편집</h2>
+
+              <label className="text-sm font-medium text-slate-600 mb-1">제목</label>
+              <input
+                type="text"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                placeholder="문서 제목을 입력하세요"
+                className="w-full border border-slate-300 rounded-lg px-3 py-2 mb-4 focus:outline-none focus:ring-2 focus:ring-indigo-400"
+              />
+
+              <label className="text-sm font-medium text-slate-600 mb-1">본문</label>
+              <textarea
+                value={body}
+                onChange={(e) => setBody(e.target.value)}
+                placeholder="여기에 본문을 입력하세요. 줄바꿈은 그대로 유지됩니다."
+                rows={12}
+                className="w-full border border-slate-300 rounded-lg px-3 py-2 mb-4 resize-y focus:outline-none focus:ring-2 focus:ring-indigo-400 doc-font"
+              />
+
+              <div className="mb-4">
+                <label className="text-sm font-medium text-slate-600 flex justify-between">
+                  <span>글꼴 크기</span>
+                  <span className="text-indigo-600 font-semibold">{fontSize}pt</span>
+                </label>
+                <input
+                  type="range"
+                  min="11"
+                  max="18"
+                  value={fontSize}
+                  onChange={(e) => setFontSize(Number(e.target.value))}
+                  className="w-full mt-2 accent-indigo-500"
+                />
+              </div>
+
+              <div className="flex flex-col sm:flex-row gap-3">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".txt,.docx,.hwp"
+                  onChange={handleFile}
+                  className="hidden"
+                />
+                <button
+                  onClick={() => fileInputRef.current && fileInputRef.current.click()}
+                  disabled={loading}
+                  className="flex-1 border border-slate-300 text-slate-700 rounded-lg px-4 py-2.5 font-medium hover:bg-slate-50 transition disabled:opacity-50"
+                >
+                  📁 파일 올리기 (.txt / .docx)
+                </button>
+                <button
+                  onClick={handleDownload}
+                  disabled={!canDownload}
+                  className="flex-1 bg-indigo-600 text-white rounded-lg px-4 py-2.5 font-semibold hover:bg-indigo-700 transition disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  {loading ? '생성 중...' : '⬇️ PDF 다운로드'}
+                </button>
+              </div>
+
+              {!canDownload && !loading && (
+                <p className="text-xs text-slate-400 mt-3">제목이나 본문을 입력하면 PDF로 저장할 수 있어요.</p>
+              )}
+
+              {notice && (
+                <div className={
+                  'mt-4 text-sm rounded-lg px-3 py-2 border ' +
+                  (notice.type === 'error'
+                    ? 'bg-red-50 border-red-200 text-red-700'
+                    : 'bg-emerald-50 border-emerald-200 text-emerald-700')
+                }>
+                  {notice.msg}
+                </div>
+              )}
+
+              <div className="mt-5 text-xs text-slate-400 leading-relaxed border-t border-slate-100 pt-4">
+                <b>사용법</b> · 제목/본문을 입력하거나 파일을 올리면 오른쪽에 실시간 미리보기가 나와요.
+                내용을 다듬은 뒤 "PDF 다운로드"를 누르면 한글이 깨지지 않는 PDF가 저장됩니다.
+                <br/>※ .hwp는 직접 변환 불가 — 한글에서 .docx/.txt 또는 PDF로 저장 후 이용하세요.
+              </div>
+            </section>
+
+            {/* 오른쪽: 미리보기 */}
+            <section className="flex flex-col">
+              <h2 className="text-base font-semibold text-slate-700 mb-3">👁️ 미리보기 (A4)</h2>
+              <div className="bg-slate-200 rounded-2xl p-4 sm:p-6 overflow-auto flex-1">
+                <DocPreview title={title} body={body} fontSize={fontSize} docRef={docRef} />
+              </div>
+            </section>
+          </main>
+
+          <footer className="text-center text-xs text-slate-400 pb-8">
+            화면을 이미지로 떠서 PDF에 담는 방식 — 글꼴 임베딩 없이도 한글이 그대로 나옵니다.
+          </footer>
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>
