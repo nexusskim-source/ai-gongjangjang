@@ -1,0 +1,493 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>오늘의 우주사진 · NASA APOD</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone@7.23.5/babel.min.js"></script>
+  <style>
+    /* 별빛 배경 (Tailwind로 표현 어려운 다중 radial-gradient + 애니메이션) */
+    body {
+      background-color: #05060f;
+      background-image:
+        radial-gradient(circle at 20% 30%, rgba(56,89,189,0.18), transparent 45%),
+        radial-gradient(circle at 80% 70%, rgba(123,63,228,0.16), transparent 50%),
+        radial-gradient(circle at 50% 100%, rgba(20,40,90,0.25), transparent 60%);
+      background-attachment: fixed;
+    }
+    /* 은은하게 반짝이는 별 레이어 */
+    .starfield::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      z-index: 0;
+      pointer-events: none;
+      background-image:
+        radial-gradient(1px 1px at 25px 35px, #ffffff, transparent),
+        radial-gradient(1px 1px at 120px 80px, rgba(255,255,255,0.8), transparent),
+        radial-gradient(1.5px 1.5px at 200px 150px, #ffffff, transparent),
+        radial-gradient(1px 1px at 300px 60px, rgba(255,255,255,0.7), transparent),
+        radial-gradient(1px 1px at 380px 220px, #ffffff, transparent),
+        radial-gradient(1.5px 1.5px at 80px 260px, rgba(255,255,255,0.6), transparent),
+        radial-gradient(1px 1px at 460px 120px, #ffffff, transparent),
+        radial-gradient(1px 1px at 520px 320px, rgba(255,255,255,0.75), transparent);
+      background-repeat: repeat;
+      background-size: 600px 400px;
+      opacity: 0.5;
+      animation: twinkle 6s ease-in-out infinite alternate;
+    }
+    @keyframes twinkle {
+      0%   { opacity: 0.35; }
+      100% { opacity: 0.65; }
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .spinner {
+      width: 56px; height: 56px;
+      border: 4px solid rgba(255,255,255,0.15);
+      border-top-color: #8ab4ff;
+      border-radius: 9999px;
+      animation: spin 0.9s linear infinite;
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(8px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    .fade-in { animation: fadeIn 0.5s ease-out; }
+  </style>
+</head>
+<body class="starfield text-slate-100 min-h-screen">
+  <div id="root" class="relative z-10"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useCallback, useRef } = React;
+
+    // ========================================
+    // ⚙️ 상수 / 설정
+    // ========================================
+    const API_KEY = "Bo8nfc52pVkoWx02v7qyd360Xe6nKp4MKOF43Wxh";
+    const API_BASE = "https://api.nasa.gov/planetary/apod";
+    const APOD_START = "1995-06-16"; // APOD 시작일
+
+    // 로컬 기준 오늘 날짜 (YYYY-MM-DD)
+    const todayStr = () => {
+      const d = new Date();
+      const off = d.getTimezoneOffset();
+      const local = new Date(d.getTime() - off * 60000);
+      return local.toISOString().slice(0, 10);
+    };
+
+    // YYYY-MM-DD 더하기/빼기
+    const shiftDate = (dateStr, days) => {
+      const [y, m, dd] = dateStr.split("-").map(Number);
+      const d = new Date(Date.UTC(y, m - 1, dd));
+      d.setUTCDate(d.getUTCDate() + days);
+      return d.toISOString().slice(0, 10);
+    };
+
+    // 한국어 보기 좋은 날짜
+    const prettyDate = (dateStr) => {
+      if (!dateStr) return "";
+      const [y, m, d] = dateStr.split("-");
+      return `${y}년 ${Number(m)}월 ${Number(d)}일`;
+    };
+
+    // ========================================
+    // 🎨 디자인 시스템 컴포넌트
+    // ========================================
+    function Button({ children, onClick, disabled, variant = "secondary", className = "", title, ...rest }) {
+      const base =
+        "inline-flex items-center justify-center gap-1.5 rounded-xl font-medium transition-all duration-200 px-4 py-2 text-sm select-none focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-[#05060f] disabled:opacity-40 disabled:cursor-not-allowed";
+      const variants = {
+        primary:
+          "bg-gradient-to-r from-indigo-500 to-violet-500 text-white shadow-lg shadow-indigo-900/40 hover:from-indigo-400 hover:to-violet-400 focus:ring-indigo-400",
+        secondary:
+          "bg-white/5 text-slate-100 border border-white/10 backdrop-blur hover:bg-white/10 focus:ring-white/30",
+        ghost:
+          "bg-transparent text-slate-300 hover:text-white hover:bg-white/5 focus:ring-white/20",
+      };
+      return (
+        <button
+          onClick={onClick}
+          disabled={disabled}
+          title={title}
+          className={`${base} ${variants[variant]} ${className}`}
+          {...rest}
+        >
+          {children}
+        </button>
+      );
+    }
+
+    function Card({ children, className = "" }) {
+      return (
+        <div
+          className={`rounded-3xl border border-white/10 bg-white/[0.03] backdrop-blur-xl shadow-2xl shadow-black/40 ${className}`}
+        >
+          {children}
+        </div>
+      );
+    }
+
+    function Spinner({ label }) {
+      return (
+        <div className="flex flex-col items-center justify-center gap-5 py-24">
+          <div className="spinner" />
+          <p className="text-slate-300 text-sm tracking-wide">{label}</p>
+        </div>
+      );
+    }
+
+    function ErrorState({ message, onRetry }) {
+      return (
+        <div className="flex flex-col items-center justify-center gap-5 py-20 px-6 text-center fade-in">
+          <div className="text-5xl">🛰️</div>
+          <p className="text-slate-200 max-w-md leading-relaxed">{message}</p>
+          {onRetry && (
+            <Button variant="primary" onClick={onRetry}>
+              🔄 다시 시도
+            </Button>
+          )}
+        </div>
+      );
+    }
+
+    // ========================================
+    // 🧩 미디어 표시 컴포넌트
+    // ========================================
+    function MediaView({ data }) {
+      const [imgError, setImgError] = useState(false);
+
+      // 데이터 바뀌면 이미지 에러 상태 초기화
+      useEffect(() => setImgError(false), [data && data.url]);
+
+      if (!data) return null;
+
+      // 이미지
+      if (data.media_type === "image") {
+        const fullUrl = data.hdurl || data.url;
+        return (
+          <a
+            href={fullUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            title="클릭하면 고화질 원본을 새 탭으로 엽니다"
+            className="block group"
+          >
+            <img
+              src={data.url}
+              alt={data.title || "NASA 오늘의 우주사진"}
+              className="w-full max-h-[78vh] object-contain bg-black rounded-2xl transition-transform duration-300 group-hover:scale-[1.005]"
+            />
+          </a>
+        );
+      }
+
+      // 영상
+      if (data.media_type === "video") {
+        // iframe 임베드 실패(혹은 임베드 불가 형식) 대비 → 섬네일 + 링크
+        if (imgError || (!data.url && data.thumbnail_url)) {
+          return (
+            <div className="flex flex-col items-center gap-4 p-4">
+              {data.thumbnail_url && (
+                <img
+                  src={data.thumbnail_url}
+                  alt={data.title}
+                  className="w-full max-h-[70vh] object-contain bg-black rounded-2xl"
+                />
+              )}
+              <a href={data.url} target="_blank" rel="noopener noreferrer">
+                <Button variant="primary">▶ 영상 보기 (새 탭)</Button>
+              </a>
+            </div>
+          );
+        }
+        return (
+          <div className="flex flex-col gap-3">
+            <div className="relative w-full overflow-hidden rounded-2xl bg-black" style={{ paddingBottom: "56.25%" }}>
+              <iframe
+                src={data.url}
+                title={data.title}
+                className="absolute inset-0 w-full h-full"
+                frameBorder="0"
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                allowFullScreen
+                onError={() => setImgError(true)}
+              />
+            </div>
+            <div className="text-center">
+              <a href={data.url} target="_blank" rel="noopener noreferrer" className="text-xs text-indigo-300 hover:text-indigo-200 underline underline-offset-2">
+                영상이 안 보이면 여기를 눌러 새 탭에서 여세요
+              </a>
+            </div>
+          </div>
+        );
+      }
+
+      return (
+        <p className="text-center text-slate-400 py-10">지원하지 않는 미디어 형식입니다.</p>
+      );
+    }
+
+    // ========================================
+    // 🧩 정보 패널
+    // ========================================
+    function InfoPanel({ data }) {
+      if (!data) return null;
+      return (
+        <div className="p-6 sm:p-8 fade-in">
+          <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 mb-2">
+            <h2 className="text-2xl sm:text-3xl font-bold text-white leading-tight">
+              {data.title}
+            </h2>
+          </div>
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-slate-400 mb-5">
+            <span className="inline-flex items-center gap-1.5">
+              📅 {prettyDate(data.date)}
+            </span>
+            {data.copyright && (
+              <span className="inline-flex items-center gap-1.5">
+                📷 © {data.copyright.replace(/\s+/g, " ").trim()}
+              </span>
+            )}
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-white/5 px-2.5 py-0.5 text-xs border border-white/10">
+              {data.media_type === "video" ? "🎬 영상" : "🖼️ 이미지"}
+            </span>
+          </div>
+
+          {data.explanation && (
+            <div>
+              <div className="inline-block text-[11px] uppercase tracking-wider text-indigo-300/80 bg-indigo-500/10 border border-indigo-400/20 rounded-md px-2 py-0.5 mb-2">
+                설명 · NASA 원문 (영문)
+              </div>
+              <p className="text-slate-300 leading-relaxed text-[15px] whitespace-pre-line">
+                {data.explanation}
+              </p>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // ========================================
+    // 📄 메인 페이지
+    // ========================================
+    function ApodViewer() {
+      const TODAY = todayStr();
+      const [date, setDate] = useState(TODAY);   // 현재 선택된 날짜
+      const [data, setData] = useState(null);
+      const [loading, setLoading] = useState(true);
+      const [error, setError] = useState(null);
+      // mode: "date" → date 기반 조회 / "random" → 랜덤 1장
+      const [mode, setMode] = useState("date");
+      const reqId = useRef(0);
+
+      // 실제 fetch 수행
+      const load = useCallback(async ({ random = false, targetDate = null } = {}) => {
+        const myId = ++reqId.current;
+        setLoading(true);
+        setError(null);
+        try {
+          let url;
+          if (random) {
+            url = `${API_BASE}?api_key=${API_KEY}&count=1&thumbs=true`;
+          } else {
+            const d = targetDate || TODAY;
+            // 오늘이면 date 파라미터 생략(API가 가장 안전)
+            url = d === TODAY
+              ? `${API_BASE}?api_key=${API_KEY}&thumbs=true`
+              : `${API_BASE}?api_key=${API_KEY}&date=${d}&thumbs=true`;
+          }
+
+          const res = await fetch(url);
+
+          if (!res.ok) {
+            if (res.status === 429) {
+              throw new Error("API 호출 한도를 초과했어요 (429). 잠시 후 다시 시도해 주세요. (NASA 무료 키는 시간당 호출 수가 제한됩니다.)");
+            }
+            if (res.status === 400 || res.status === 404) {
+              throw new Error("해당 날짜의 우주사진을 찾을 수 없어요. 아직 공개되지 않았거나 잘못된 날짜일 수 있어요. (APOD는 미국 동부시간 기준으로 갱신됩니다.)");
+            }
+            throw new Error(`사진을 불러오지 못했어요. (오류 코드 ${res.status})`);
+          }
+
+          let json = await res.json();
+          if (Array.isArray(json)) json = json[0]; // 랜덤은 배열
+
+          if (myId !== reqId.current) return; // 더 최신 요청이 있으면 무시
+
+          if (!json) throw new Error("응답 데이터가 비어 있어요.");
+
+          setData(json);
+          if (random && json.date) {
+            setDate(json.date);
+          }
+        } catch (e) {
+          if (myId !== reqId.current) return;
+          const msg =
+            e instanceof TypeError
+              ? "네트워크 연결에 문제가 있어요. 인터넷 상태를 확인하고 다시 시도해 주세요."
+              : e.message;
+          setError(msg);
+          setData(null);
+        } finally {
+          if (myId === reqId.current) setLoading(false);
+        }
+      }, [TODAY]);
+
+      // 모드/날짜 변화에 따라 로드
+      useEffect(() => {
+        if (mode === "random") {
+          load({ random: true });
+        } else {
+          load({ targetDate: date });
+        }
+        // eslint-disable-next-line
+      }, [date, mode]);
+
+      // ── 핸들러 ──
+      const goPrev = () => {
+        if (date <= APOD_START) return;
+        setMode("date");
+        setDate(shiftDate(date, -1));
+      };
+      const goNext = () => {
+        if (date >= TODAY) return;
+        setMode("date");
+        setDate(shiftDate(date, 1));
+      };
+      const goToday = () => {
+        setMode("date");
+        setDate(TODAY);
+      };
+      const goRandom = () => {
+        // 랜덤은 같은 mode여도 다시 트리거되도록: 항상 date를 건드리지 않고 강제 재호출
+        if (mode === "random") {
+          load({ random: true });
+        } else {
+          setMode("random");
+        }
+      };
+      const onPickDate = (e) => {
+        const v = e.target.value;
+        if (!v) return;
+        if (v > TODAY || v < APOD_START) return;
+        setMode("date");
+        setDate(v);
+      };
+      const retry = () => {
+        if (mode === "random") load({ random: true });
+        else load({ targetDate: date });
+      };
+
+      const isImage = data && data.media_type === "image";
+      const hdLink = data ? (data.hdurl || data.url) : null;
+
+      const atStart = date <= APOD_START;
+      const atEnd = date >= TODAY;
+
+      return (
+        <div className="max-w-5xl mx-auto px-4 sm:px-6 py-8 sm:py-12">
+          {/* 헤더 */}
+          <header className="text-center mb-8">
+            <h1 className="text-3xl sm:text-4xl font-extrabold tracking-tight bg-gradient-to-r from-indigo-200 via-white to-violet-200 bg-clip-text text-transparent">
+              🌌 오늘의 우주사진
+            </h1>
+            <p className="text-slate-400 text-sm mt-2">
+              NASA APOD · Astronomy Picture of the Day
+            </p>
+          </header>
+
+          {/* 컨트롤 바 */}
+          <Card className="p-4 mb-6">
+            <div className="flex flex-col gap-4">
+              {/* 1행: 날짜 이동 */}
+              <div className="flex flex-wrap items-center justify-center gap-2 sm:gap-3">
+                <Button onClick={goPrev} disabled={atStart || loading} title="이전 날">
+                  ◀ 이전날
+                </Button>
+                <label className="flex items-center gap-2 rounded-xl bg-white/5 border border-white/10 px-3 py-1.5">
+                  <span className="text-slate-400 text-sm hidden sm:inline">날짜</span>
+                  <input
+                    type="date"
+                    value={mode === "random" && data ? (data.date || date) : date}
+                    min={APOD_START}
+                    max={TODAY}
+                    onChange={onPickDate}
+                    className="bg-transparent text-slate-100 text-sm outline-none [color-scheme:dark] cursor-pointer"
+                  />
+                </label>
+                <Button onClick={goNext} disabled={atEnd || loading} title="다음 날">
+                  다음날 ▶
+                </Button>
+              </div>
+
+              {/* 2행: 빠른 동작 */}
+              <div className="flex flex-wrap items-center justify-center gap-2 sm:gap-3">
+                <Button onClick={goToday} disabled={loading} variant="secondary">
+                  📍 오늘
+                </Button>
+                <Button onClick={goRandom} disabled={loading} variant="primary">
+                  🎲 랜덤
+                </Button>
+                {isImage && hdLink && (
+                  <a href={hdLink} target="_blank" rel="noopener noreferrer">
+                    <Button variant="secondary" title="고화질 원본을 새 탭으로 엽니다">
+                      🔍 HD/원본 보기
+                    </Button>
+                  </a>
+                )}
+              </div>
+            </div>
+          </Card>
+
+          {/* 본문 */}
+          <Card className="overflow-hidden">
+            {loading ? (
+              <Spinner label="우주 사진을 불러오는 중..." />
+            ) : error ? (
+              <ErrorState message={error} onRetry={retry} />
+            ) : data ? (
+              <div className="fade-in">
+                <div className="p-3 sm:p-4">
+                  <MediaView data={data} />
+                </div>
+                <div className="border-t border-white/10">
+                  <InfoPanel data={data} />
+                </div>
+              </div>
+            ) : (
+              <ErrorState message="표시할 사진이 없어요." onRetry={retry} />
+            )}
+          </Card>
+
+          {/* 푸터 */}
+          <footer className="text-center text-xs text-slate-500 mt-8 leading-relaxed">
+            데이터 제공 ·{" "}
+            <a
+              href="https://apod.nasa.gov/apod/astropix.html"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-slate-400 hover:text-slate-200 underline underline-offset-2"
+            >
+              NASA APOD
+            </a>{" "}
+            · 1995년 6월 16일부터 매일 갱신됩니다.
+          </footer>
+        </div>
+      );
+    }
+
+    // ========================================
+    // 🚀 App & 렌더
+    // ========================================
+    function App() {
+      return <ApodViewer />;
+    }
+
+    ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+  </script>
+</body>
+</html>
