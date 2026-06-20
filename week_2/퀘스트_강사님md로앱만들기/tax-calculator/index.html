@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>한국 세금계산기</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone@7.23.5/babel.min.js"></script>
+</head>
+<body class="bg-slate-100">
+  <div id="root"></div>
+  <script type="text/babel">
+    // ========================================
+    // React Hooks
+    // ========================================
+    const { useState, useMemo } = React;
+
+    // ========================================
+    // Utils
+    // ========================================
+    const won = (n) => {
+      if (n === null || n === undefined || isNaN(n)) return "₩0";
+      return "₩" + Math.round(n).toLocaleString("ko-KR");
+    };
+    // 문자열 입력에서 숫자만 추출
+    const parseNum = (str) => {
+      const cleaned = String(str).replace(/[^0-9]/g, "");
+      return cleaned === "" ? 0 : parseInt(cleaned, 10);
+    };
+    const comma = (n) => (n === 0 ? "" : n.toLocaleString("ko-KR"));
+
+    // ========================================
+    // 🎨 Design System Components
+    // ========================================
+    function MoneyInput({ label, value, onChange, placeholder, hint }) {
+      return (
+        <div className="mb-4">
+          <label className="block text-sm font-medium text-slate-700 mb-1">{label}</label>
+          <div className="relative">
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">₩</span>
+            <input
+              type="text"
+              inputMode="numeric"
+              value={comma(value)}
+              onChange={(e) => onChange(parseNum(e.target.value))}
+              placeholder={placeholder}
+              className="w-full pl-7 pr-12 py-3 rounded-lg border border-slate-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 outline-none text-right text-lg"
+            />
+            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">원</span>
+          </div>
+          {hint && <p className="text-xs text-slate-400 mt-1">{hint}</p>}
+        </div>
+      );
+    }
+
+    function ResultRow({ label, value, strong, accent }) {
+      return (
+        <div className={`flex justify-between items-center py-3 ${strong ? "border-t-2 border-slate-200 mt-1" : "border-b border-slate-100"}`}>
+          <span className={`${strong ? "font-bold text-slate-800" : "text-slate-600"}`}>{label}</span>
+          <span className={`tabular-nums ${strong ? "text-xl font-bold" : "text-base"} ${accent ? "text-blue-600" : "text-slate-800"}`}>
+            {value}
+          </span>
+        </div>
+      );
+    }
+
+    function Card({ children, className }) {
+      return <div className={`bg-white rounded-2xl shadow-sm p-5 sm:p-6 ${className || ""}`}>{children}</div>;
+    }
+
+    function EmptyState({ text }) {
+      return (
+        <div className="text-center py-10 text-slate-400">
+          <div className="text-4xl mb-2">🧮</div>
+          <p className="text-sm">{text}</p>
+        </div>
+      );
+    }
+
+    function InfoNote({ children }) {
+      return (
+        <div className="mt-4 bg-blue-50 text-blue-700 text-xs leading-relaxed rounded-lg p-3">
+          {children}
+        </div>
+      );
+    }
+
+    // ========================================
+    // 📄 Page: 부가가치세 (VAT)
+    // ========================================
+    function VatTab() {
+      const [mode, setMode] = useState("supply"); // supply: 공급가액 기준 / total: 합계 기준
+      const [supply, setSupply] = useState(0);
+      const [total, setTotal] = useState(0);
+
+      const result = useMemo(() => {
+        if (mode === "supply") {
+          const vat = supply * 0.1;
+          return { supply, vat, total: supply + vat };
+        } else {
+          // 합계 = 공급가액 * 1.1
+          const s = total / 1.1;
+          const vat = total - s;
+          return { supply: s, vat, total };
+        }
+      }, [mode, supply, total]);
+
+      const hasInput = mode === "supply" ? supply > 0 : total > 0;
+
+      return (
+        <Card>
+          <div className="flex gap-2 mb-5">
+            <button
+              onClick={() => setMode("supply")}
+              className={`flex-1 py-2 rounded-lg text-sm font-medium transition ${mode === "supply" ? "bg-blue-600 text-white" : "bg-slate-100 text-slate-600"}`}
+            >
+              공급가액 → 부가세
+            </button>
+            <button
+              onClick={() => setMode("total")}
+              className={`flex-1 py-2 rounded-lg text-sm font-medium transition ${mode === "total" ? "bg-blue-600 text-white" : "bg-slate-100 text-slate-600"}`}
+            >
+              합계 → 역산
+            </button>
+          </div>
+
+          {mode === "supply" ? (
+            <MoneyInput label="공급가액 (부가세 별도)" value={supply} onChange={setSupply} placeholder="0" hint="부가세를 더하기 전 금액을 입력하세요." />
+          ) : (
+            <MoneyInput label="합계금액 (부가세 포함)" value={total} onChange={setTotal} placeholder="0" hint="부가세가 포함된 최종 금액을 입력하세요." />
+          )}
+
+          {hasInput ? (
+            <div className="mt-2">
+              <ResultRow label="공급가액" value={won(result.supply)} />
+              <ResultRow label="부가세 (10%)" value={won(result.vat)} accent />
+              <ResultRow label="합계금액" value={won(result.total)} strong accent />
+            </div>
+          ) : (
+            <EmptyState text="금액을 입력하면 자동으로 계산됩니다." />
+          )}
+
+          <InfoNote>
+            부가가치세는 공급가액의 10%입니다. 합계금액 = 공급가액 × 1.1 이므로,
+            합계에서 역산할 때는 합계 ÷ 1.1 로 공급가액을 구합니다.
+          </InfoNote>
+        </Card>
+      );
+    }
+
+    // ========================================
+    // 📄 Page: 종합소득세 (2024 기준)
+    // ========================================
+    const TAX_BRACKETS = [
+      { limit: 14000000, rate: 0.06, deduction: 0, label: "1,400만원 이하" },
+      { limit: 50000000, rate: 0.15, deduction: 1260000, label: "1,400만원 초과 ~ 5,000만원 이하" },
+      { limit: 88000000, rate: 0.24, deduction: 5760000, label: "5,000만원 초과 ~ 8,800만원 이하" },
+      { limit: 150000000, rate: 0.35, deduction: 15440000, label: "8,800만원 초과 ~ 1.5억 이하" },
+      { limit: 300000000, rate: 0.38, deduction: 19940000, label: "1.5억 초과 ~ 3억 이하" },
+      { limit: 500000000, rate: 0.40, deduction: 25940000, label: "3억 초과 ~ 5억 이하" },
+      { limit: 1000000000, rate: 0.42, deduction: 35940000, label: "5억 초과 ~ 10억 이하" },
+      { limit: Infinity, rate: 0.45, deduction: 65940000, label: "10억 초과" },
+    ];
+
+    function IncomeTaxTab() {
+      const [base, setBase] = useState(0);
+
+      const result = useMemo(() => {
+        if (base <= 0) return null;
+        const bracket = TAX_BRACKETS.find((b) => base <= b.limit);
+        const tax = base * bracket.rate - bracket.deduction;
+        return { bracket, tax: Math.max(0, tax) };
+      }, [base]);
+
+      return (
+        <Card>
+          <MoneyInput label="과세표준" value={base} onChange={setBase} placeholder="0" hint="각종 소득공제를 차감한 뒤의 금액입니다." />
+
+          {result ? (
+            <div className="mt-2">
+              <div className="bg-slate-50 rounded-lg p-3 mb-3">
+                <p className="text-xs text-slate-500 mb-1">적용 구간</p>
+                <p className="text-sm font-medium text-slate-800">{result.bracket.label}</p>
+              </div>
+              <ResultRow label="적용 세율" value={(result.bracket.rate * 100) + "%"} />
+              <ResultRow label="누진공제액" value={won(result.bracket.deduction)} />
+              <ResultRow label="산출세액" value={won(result.tax)} strong accent />
+            </div>
+          ) : (
+            <EmptyState text="과세표준을 입력하면 산출세액을 계산합니다." />
+          )}
+
+          <InfoNote>
+            산출세액 = 과세표준 × 세율 − 누진공제 (2024년 기준 8단계 누진세율).
+            실제 납부세액은 세액공제·감면, 지방소득세(산출세액의 10%) 등에 따라 달라질 수 있습니다.
+          </InfoNote>
+        </Card>
+      );
+    }
+
+    // ========================================
+    // 📄 Page: 연봉 실수령액
+    // ========================================
+    // 근로소득세 간이 추정: 과세표준에 종합소득세 누진세율을 적용한 단순 추정치
+    const calcIncomeTax = (taxableAnnual) => {
+      if (taxableAnnual <= 0) return 0;
+      const bracket = TAX_BRACKETS.find((b) => taxableAnnual <= b.limit);
+      return Math.max(0, taxableAnnual * bracket.rate - bracket.deduction);
+    };
+
+    function SalaryTab() {
+      const [annual, setAnnual] = useState(0);
+
+      const result = useMemo(() => {
+        if (annual <= 0) return null;
+        // 4대보험 (근로자 부담분, 월 기준)
+        const monthlyGross = annual / 12;
+        const nationalPension = monthlyGross * 0.045;      // 국민연금 4.5%
+        const healthIns = monthlyGross * 0.03545;          // 건강보험 3.545%
+        const longTermCare = healthIns * 0.1295;           // 장기요양 = 건보의 12.95%
+        const employment = monthlyGross * 0.009;           // 고용보험 0.9%
+        const insuranceTotal = nationalPension + healthIns + longTermCare + employment;
+
+        // 근로소득세 간이 추정: 연 보험료·기본공제(근로소득공제 대용 단순화)를 제외한 과세표준 추정
+        // 단순 추정 → 연봉에서 연 보험료를 차감한 금액을 과세표준으로 간주
+        const annualInsurance = insuranceTotal * 12;
+        const estTaxBase = Math.max(0, annual - annualInsurance);
+        const annualIncomeTax = calcIncomeTax(estTaxBase);
+        const monthlyIncomeTax = annualIncomeTax / 12;
+        const localTax = monthlyIncomeTax * 0.1;           // 지방소득세 10%
+
+        const totalDeduction = insuranceTotal + monthlyIncomeTax + localTax;
+        const netMonthly = monthlyGross - totalDeduction;
+
+        return {
+          monthlyGross,
+          rows: [
+            { name: "국민연금 (4.5%)", value: nationalPension },
+            { name: "건강보험 (3.545%)", value: healthIns },
+            { name: "장기요양 (건보의 12.95%)", value: longTermCare },
+            { name: "고용보험 (0.9%)", value: employment },
+            { name: "근로소득세 (간이 추정)", value: monthlyIncomeTax },
+            { name: "지방소득세 (소득세의 10%)", value: localTax },
+          ],
+          totalDeduction,
+          netMonthly,
+          netAnnual: netMonthly * 12,
+        };
+      }, [annual]);
+
+      return (
+        <Card>
+          <MoneyInput label="연봉 (세전)" value={annual} onChange={setAnnual} placeholder="0" hint="세금·보험료 공제 전 연간 총액을 입력하세요." />
+
+          {result ? (
+            <div className="mt-2">
+              <ResultRow label="월 급여 (세전)" value={won(result.monthlyGross)} />
+
+              <div className="mt-4 mb-2">
+                <p className="text-xs font-medium text-slate-500 mb-2">월 공제 항목</p>
+                <div className="rounded-lg border border-slate-100 overflow-hidden">
+                  {result.rows.map((r, i) => (
+                    <div key={i} className={`flex justify-between px-3 py-2 text-sm ${i % 2 ? "bg-slate-50" : "bg-white"}`}>
+                      <span className="text-slate-600">{r.name}</span>
+                      <span className="tabular-nums text-slate-800">-{won(r.value).slice(1)}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <ResultRow label="공제 합계" value={"-" + won(result.totalDeduction).slice(1)} />
+              <ResultRow label="월 실수령액" value={won(result.netMonthly)} strong accent />
+              <div className="text-right text-xs text-slate-400 mt-1">연 실수령 약 {won(result.netAnnual)}</div>
+            </div>
+          ) : (
+            <EmptyState text="연봉을 입력하면 월 실수령액을 계산합니다." />
+          )}
+
+          <InfoNote>
+            4대보험(국민연금·건강보험·장기요양·고용보험) 근로자 부담분과 근로소득세를 공제한 추정치입니다.
+            근로소득세는 부양가족·각종 공제를 반영하지 않은 간이 추정값이므로, 실제 금액은 간이세액표·연말정산에 따라 달라집니다.
+          </InfoNote>
+        </Card>
+      );
+    }
+
+    // ========================================
+    // 🚀 App
+    // ========================================
+    const TABS = [
+      { id: "vat", label: "부가가치세", emoji: "🧾" },
+      { id: "income", label: "종합소득세", emoji: "📊" },
+      { id: "salary", label: "연봉 실수령액", emoji: "💰" },
+    ];
+
+    function App() {
+      const [tab, setTab] = useState("vat");
+
+      return (
+        <div className="min-h-screen flex flex-col items-center px-4 py-8">
+          <div className="w-full max-w-md">
+            <header className="text-center mb-6">
+              <h1 className="text-2xl font-bold text-slate-800">한국 세금계산기</h1>
+              <p className="text-sm text-slate-500 mt-1">부가세 · 종합소득세 · 실수령액 (2024년 기준)</p>
+            </header>
+
+            {/* 탭 */}
+            <div className="flex bg-white rounded-xl p-1 shadow-sm mb-5">
+              {TABS.map((t) => (
+                <button
+                  key={t.id}
+                  onClick={() => setTab(t.id)}
+                  className={`flex-1 py-2.5 rounded-lg text-sm font-medium transition ${tab === t.id ? "bg-blue-600 text-white shadow" : "text-slate-600 hover:bg-slate-50"}`}
+                >
+                  <span className="mr-1">{t.emoji}</span>
+                  <span className="hidden sm:inline">{t.label}</span>
+                  <span className="sm:hidden text-xs">{t.label}</span>
+                </button>
+              ))}
+            </div>
+
+            {tab === "vat" && <VatTab />}
+            {tab === "income" && <IncomeTaxTab />}
+            {tab === "salary" && <SalaryTab />}
+
+            <footer className="text-center text-xs text-slate-400 mt-6">
+              본 계산기는 참고용 추정치이며 실제 세액과 다를 수 있습니다.
+            </footer>
+          </div>
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+  </script>
+</body>
+</html>

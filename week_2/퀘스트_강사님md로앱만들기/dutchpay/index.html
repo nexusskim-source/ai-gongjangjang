@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>더치페이 계산기</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone@7.23.5/babel.min.js"></script>
+  <style>
+    @keyframes pop { 0% { transform: scale(0.96); opacity: 0.6; } 100% { transform: scale(1); opacity: 1; } }
+    .animate-pop { animation: pop 0.25s ease-out; }
+  </style>
+</head>
+<body class="bg-gradient-to-b from-indigo-50 to-white min-h-screen">
+  <div id="root"></div>
+  <script type="text/babel">
+    // ========================================
+    // React Hooks
+    // ========================================
+    const { useState, useMemo } = React;
+
+    // ========================================
+    // 유틸리티
+    // ========================================
+    const onlyDigits = (s) => (s || "").replace(/[^\d]/g, "");
+    const formatNumber = (n) => {
+      if (n === "" || n === null || n === undefined || isNaN(n)) return "";
+      return Number(n).toLocaleString("ko-KR");
+    };
+    const won = (n) => "₩" + formatNumber(Math.round(n));
+
+    // ========================================
+    // 🎨 Design System Components
+    // ========================================
+    function Card({ children, className = "" }) {
+      return (
+        <div className={`bg-white rounded-2xl shadow-sm border border-gray-100 p-5 ${className}`}>
+          {children}
+        </div>
+      );
+    }
+
+    function Label({ children }) {
+      return <label className="block text-sm font-semibold text-gray-700 mb-2">{children}</label>;
+    }
+
+    function Button({ children, variant = "primary", size = "md", onClick, disabled, className = "", type = "button" }) {
+      const variants = {
+        primary: "bg-indigo-600 text-white hover:bg-indigo-700 disabled:bg-indigo-300",
+        secondary: "bg-gray-100 text-gray-700 hover:bg-gray-200",
+        ghost: "bg-transparent text-indigo-600 hover:bg-indigo-50",
+        danger: "bg-red-50 text-red-600 hover:bg-red-100",
+      };
+      const sizes = { sm: "px-3 py-1.5 text-sm", md: "px-4 py-2.5 text-sm", lg: "px-5 py-3 text-base" };
+      return (
+        <button
+          type={type}
+          onClick={onClick}
+          disabled={disabled}
+          className={`rounded-xl font-semibold transition-colors disabled:cursor-not-allowed ${variants[variant]} ${sizes[size]} ${className}`}
+        >
+          {children}
+        </button>
+      );
+    }
+
+    // 모드 선택 토글
+    function ModeToggle({ mode, onChange }) {
+      const options = [
+        { key: "count", label: "인원수" },
+        { key: "names", label: "참가자 이름" },
+      ];
+      return (
+        <div className="flex bg-gray-100 rounded-xl p-1" role="tablist" aria-label="분배 방식 선택">
+          {options.map((o) => (
+            <button
+              key={o.key}
+              role="tab"
+              aria-selected={mode === o.key}
+              onClick={() => onChange(o.key)}
+              className={`flex-1 py-2 rounded-lg text-sm font-semibold transition-all ${
+                mode === o.key ? "bg-white text-indigo-600 shadow-sm" : "text-gray-500"
+              }`}
+            >
+              {o.label}
+            </button>
+          ))}
+        </div>
+      );
+    }
+
+    // ========================================
+    // 🧩 입력 섹션 컴포넌트
+    // ========================================
+    function AmountInput({ amount, setAmount }) {
+      return (
+        <Card>
+          <Label>총 금액</Label>
+          <div className="relative">
+            <span className="absolute left-4 top-1/2 -translate-y-1/2 text-2xl font-bold text-gray-400">₩</span>
+            <input
+              type="text"
+              inputMode="numeric"
+              value={formatNumber(amount)}
+              onChange={(e) => setAmount(onlyDigits(e.target.value))}
+              placeholder="0"
+              aria-label="총 금액"
+              className="w-full pl-11 pr-4 py-3 text-2xl font-bold text-right rounded-xl border-2 border-gray-200 focus:border-indigo-500 focus:outline-none"
+            />
+          </div>
+          <div className="flex gap-2 mt-3 flex-wrap">
+            {[10000, 30000, 50000, 100000].map((v) => (
+              <Button key={v} variant="secondary" size="sm"
+                onClick={() => setAmount(String((Number(amount) || 0) + v))}>
+                +{formatNumber(v)}
+              </Button>
+            ))}
+            <Button variant="ghost" size="sm" onClick={() => setAmount("")}>초기화</Button>
+          </div>
+        </Card>
+      );
+    }
+
+    function CountInput({ count, setCount }) {
+      const change = (d) => setCount((c) => Math.max(1, (Number(c) || 1) + d));
+      return (
+        <Card>
+          <Label>인원수</Label>
+          <div className="flex items-center justify-center gap-4">
+            <Button variant="secondary" size="lg" onClick={() => change(-1)} aria-label="인원 감소">−</Button>
+            <input
+              type="text"
+              inputMode="numeric"
+              value={count}
+              onChange={(e) => {
+                const v = onlyDigits(e.target.value);
+                setCount(v === "" ? "" : String(Math.max(1, Number(v))));
+              }}
+              onBlur={() => { if (count === "" || Number(count) < 1) setCount("1"); }}
+              aria-label="인원수"
+              className="w-24 text-center text-3xl font-bold py-2 rounded-xl border-2 border-gray-200 focus:border-indigo-500 focus:outline-none"
+            />
+            <Button variant="secondary" size="lg" onClick={() => change(1)} aria-label="인원 증가">+</Button>
+          </div>
+          <p className="text-center text-sm text-gray-500 mt-3">총 {count || 0}명이 나눠 냅니다</p>
+        </Card>
+      );
+    }
+
+    function NamesInput({ names, setNames }) {
+      const [draft, setDraft] = useState("");
+      const add = () => {
+        const v = draft.trim();
+        if (!v) return;
+        setNames((arr) => [...arr, v]);
+        setDraft("");
+      };
+      const remove = (i) => setNames((arr) => arr.filter((_, idx) => idx !== i));
+      return (
+        <Card>
+          <Label>참가자 이름 ({names.length}명)</Label>
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") add(); }}
+              placeholder="이름 입력 후 추가"
+              aria-label="참가자 이름"
+              className="flex-1 px-4 py-2.5 rounded-xl border-2 border-gray-200 focus:border-indigo-500 focus:outline-none"
+            />
+            <Button onClick={add} disabled={!draft.trim()}>추가</Button>
+          </div>
+          {names.length === 0 ? (
+            <p className="text-center text-sm text-gray-400 mt-4 py-3">참가자를 추가해 주세요</p>
+          ) : (
+            <div className="flex flex-wrap gap-2 mt-4">
+              {names.map((n, i) => (
+                <span key={i} className="inline-flex items-center gap-1.5 bg-indigo-50 text-indigo-700 pl-3 pr-2 py-1.5 rounded-full text-sm font-medium animate-pop">
+                  {n}
+                  <button onClick={() => remove(i)} aria-label={`${n} 삭제`}
+                    className="w-5 h-5 rounded-full hover:bg-indigo-200 flex items-center justify-center text-indigo-500">×</button>
+                </span>
+              ))}
+            </div>
+          )}
+        </Card>
+      );
+    }
+
+    function TipInput({ tip, setTip }) {
+      const presets = [0, 5, 10, 15];
+      return (
+        <Card>
+          <Label>팁 / 봉사료 (선택)</Label>
+          <div className="flex gap-2 flex-wrap">
+            {presets.map((p) => (
+              <button key={p} onClick={() => setTip(p)}
+                className={`flex-1 min-w-[60px] py-2.5 rounded-xl text-sm font-semibold border-2 transition-all ${
+                  Number(tip) === p ? "border-indigo-500 bg-indigo-50 text-indigo-600" : "border-gray-200 text-gray-500"
+                }`}>
+                {p}%
+              </button>
+            ))}
+          </div>
+          <div className="flex items-center gap-2 mt-3">
+            <span className="text-sm text-gray-500">직접 입력</span>
+            <input
+              type="text"
+              inputMode="numeric"
+              value={tip}
+              onChange={(e) => {
+                const v = onlyDigits(e.target.value);
+                setTip(v === "" ? 0 : Math.min(100, Number(v)));
+              }}
+              aria-label="팁 비율"
+              className="w-20 px-3 py-1.5 text-right rounded-lg border-2 border-gray-200 focus:border-indigo-500 focus:outline-none"
+            />
+            <span className="text-sm text-gray-500">%</span>
+          </div>
+        </Card>
+      );
+    }
+
+    // ========================================
+    // 📄 결과 섹션
+    // ========================================
+    function ResultCard({ result, mode, names }) {
+      const { people, total, perPerson, remainder, tipAmount } = result;
+      if (!people || total <= 0) {
+        return (
+          <Card className="bg-gray-50 border-dashed text-center">
+            <p className="text-gray-400 py-6">금액과 인원을 입력하면<br />1인당 금액이 표시됩니다</p>
+          </Card>
+        );
+      }
+      return (
+        <Card className="bg-gradient-to-br from-indigo-600 to-indigo-500 text-white border-0 animate-pop">
+          <p className="text-indigo-100 text-sm font-medium">1인당 부담 금액</p>
+          <p className="text-5xl font-extrabold mt-1 tracking-tight">{won(perPerson)}</p>
+          <div className="mt-4 pt-4 border-t border-white/20 space-y-1.5 text-sm">
+            <div className="flex justify-between text-indigo-100">
+              <span>총 결제 금액{tipAmount > 0 ? " (팁 포함)" : ""}</span>
+              <span className="font-semibold text-white">{won(total)}</span>
+            </div>
+            {tipAmount > 0 && (
+              <div className="flex justify-between text-indigo-100">
+                <span>이 중 팁 / 봉사료</span>
+                <span className="font-semibold text-white">{won(tipAmount)}</span>
+              </div>
+            )}
+            <div className="flex justify-between text-indigo-100">
+              <span>인원</span>
+              <span className="font-semibold text-white">{people}명</span>
+            </div>
+          </div>
+          {remainder > 0 && (
+            <div className="mt-4 bg-amber-400/20 border border-amber-200/40 rounded-xl px-4 py-3 text-sm">
+              <p className="font-semibold text-amber-50">💡 나머지 {won(remainder)} 안내</p>
+              <p className="text-indigo-100 mt-1 leading-relaxed">
+                1인당 {won(perPerson)}씩 걷으면 {won(remainder)}이 남거나 부족합니다.
+                한 명이 {won(perPerson - remainder)}만 내거나, 잔돈은 한 명이 더 부담해 주세요.
+              </p>
+            </div>
+          )}
+          {mode === "names" && names.length > 0 && (
+            <div className="mt-4 pt-4 border-t border-white/20">
+              <p className="text-indigo-100 text-xs mb-2">참가자별 정산</p>
+              <div className="space-y-1">
+                {names.map((n, i) => (
+                  <div key={i} className="flex justify-between text-sm bg-white/10 rounded-lg px-3 py-1.5">
+                    <span>{n}</span>
+                    <span className="font-semibold">{won(perPerson)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </Card>
+      );
+    }
+
+    // ========================================
+    // 🚀 App
+    // ========================================
+    function App() {
+      const [amount, setAmount] = useState("");      // 입력된 총 금액(팁 제외)
+      const [mode, setMode] = useState("count");
+      const [count, setCount] = useState("2");
+      const [names, setNames] = useState([]);
+      const [tip, setTip] = useState(0);
+
+      const result = useMemo(() => {
+        const base = Number(amount) || 0;
+        const tipAmount = Math.round(base * (Number(tip) || 0) / 100);
+        const total = base + tipAmount;
+        const people = mode === "count" ? (Number(count) || 0) : names.length;
+        if (people <= 0 || total <= 0) {
+          return { people, total, perPerson: 0, remainder: 0, tipAmount };
+        }
+        const perPerson = Math.ceil(total / people);
+        const remainder = perPerson * people - total; // 올림으로 더 걷히는 금액
+        return { people, total, perPerson, remainder, tipAmount };
+      }, [amount, mode, count, names, tip]);
+
+      return (
+        <div className="max-w-md mx-auto px-4 py-8">
+          <header className="text-center mb-6">
+            <h1 className="text-3xl font-extrabold text-gray-800">💸 더치페이 계산기</h1>
+            <p className="text-gray-500 text-sm mt-1">금액을 입력하면 1인당 금액을 자동 계산해요</p>
+          </header>
+
+          <div className="space-y-4">
+            <AmountInput amount={amount} setAmount={setAmount} />
+
+            <Card>
+              <Label>분배 방식</Label>
+              <ModeToggle mode={mode} onChange={setMode} />
+            </Card>
+
+            {mode === "count"
+              ? <CountInput count={count} setCount={setCount} />
+              : <NamesInput names={names} setNames={setNames} />}
+
+            <TipInput tip={tip} setTip={setTip} />
+
+            <ResultCard result={result} mode={mode} names={names} />
+          </div>
+
+          <footer className="text-center text-xs text-gray-400 mt-8">
+            올림 기준으로 계산되어 부족분이 생기지 않도록 안내합니다.
+          </footer>
+        </div>
+      );
+    }
+
+    // ========================================
+    // Rendering
+    // ========================================
+    ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+  </script>
+</body>
+</html>
