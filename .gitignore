@@ -1,0 +1,12 @@
+# 개인 로컬 설정 (PC마다 다름, 공개 불필요)
+.claude/settings.local.json
+
+# 강사 참고용 에이전트 (저장소에 안 올림 — 내가 만든 ksk-react-dev.md는 유지)
+.claude/agents/single-react-dev.md
+
+# Windows 바로가기
+*.lnk
+
+# OS / 정크 파일
+.DS_Store
+__MACOSX/
