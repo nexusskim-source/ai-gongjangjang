@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>오늘 뭐 입지? · 날씨 옷차림 추천</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- ⚠️ Babel은 반드시 7.23.5 고정. 미고정/최신 시 빈 화면. -->
+  <script src="https://unpkg.com/react@18.2.0/umd/react.development.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18.2.0/umd/react-dom.development.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone@7.23.5/babel.min.js"></script>
+  <style>
+    @keyframes floaty { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-8px); } }
+    .floaty { animation: floaty 3.5s ease-in-out infinite; }
+    @keyframes fadeUp { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+    .fade-up { animation: fadeUp 0.45s ease-out both; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .spin { animation: spin 0.8s linear infinite; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useCallback, useRef } = React;
+
+    // ========================================
+    // ⚙️ 설정 / 상수
+    // ========================================
+    const API_BASE_URL =
+      (window.location.protocol === "http:" || window.location.protocol === "https:")
+        ? window.location.origin
+        : "http://localhost:3000";
+
+    const POPULAR_CITIES = ["서울", "부산", "인천", "대구", "제주"];
+
+    // 날씨 한글 → 이모지
+    function weatherEmoji(weather) {
+      if (!weather) return "🌤️";
+      const w = String(weather);
+      if (w.includes("뇌우") || w.includes("천둥")) return "⛈️";
+      if (w.includes("눈")) return "❄️";
+      if (w.includes("비") || w.includes("소나기")) return "🌧️";
+      if (w.includes("안개")) return "🌫️";
+      if (w.includes("흐림") || w.includes("구름")) return "☁️";
+      if (w.includes("맑")) return "☀️";
+      return "🌤️";
+    }
+
+    // 기온에 따른 테마(배경 그라데이션 / 포인트 색)
+    function tempTheme(t) {
+      if (t == null || isNaN(t)) {
+        return { bg: "from-sky-100 via-indigo-100 to-purple-100", ring: "ring-indigo-200",
+                 accent: "text-indigo-600", chip: "bg-indigo-50 text-indigo-700 border-indigo-200",
+                 bigText: "text-indigo-600", label: "정보 없음" };
+      }
+      if (t >= 28) return { bg: "from-rose-200 via-orange-200 to-amber-200", ring: "ring-orange-200",
+                 accent: "text-rose-600", chip: "bg-rose-50 text-rose-700 border-rose-200",
+                 bigText: "text-rose-600", label: "무더위" };
+      if (t >= 23) return { bg: "from-amber-100 via-orange-100 to-yellow-100", ring: "ring-amber-200",
+                 accent: "text-orange-600", chip: "bg-amber-50 text-amber-700 border-amber-200",
+                 bigText: "text-orange-600", label: "따뜻함" };
+      if (t >= 17) return { bg: "from-lime-100 via-emerald-100 to-green-100", ring: "ring-emerald-200",
+                 accent: "text-emerald-600", chip: "bg-emerald-50 text-emerald-700 border-emerald-200",
+                 bigText: "text-emerald-600", label: "선선함" };
+      if (t >= 10) return { bg: "from-teal-100 via-cyan-100 to-sky-100", ring: "ring-cyan-200",
+                 accent: "text-cyan-700", chip: "bg-cyan-50 text-cyan-700 border-cyan-200",
+                 bigText: "text-cyan-700", label: "쌀쌀함" };
+      return { bg: "from-sky-200 via-blue-200 to-indigo-200", ring: "ring-blue-200",
+                 accent: "text-blue-700", chip: "bg-blue-50 text-blue-700 border-blue-200",
+                 bigText: "text-blue-700", label: "추움" };
+    }
+
+    // ========================================
+    // 🎨 디자인 시스템 컴포넌트
+    // ========================================
+    function Button({ children, onClick, disabled, variant = "primary", className = "", type = "button" }) {
+      const base = "inline-flex items-center justify-center gap-2 font-semibold rounded-2xl px-5 py-3 transition active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-offset-1";
+      const variants = {
+        primary: "bg-slate-900 text-white hover:bg-slate-800 focus:ring-slate-400 shadow-lg shadow-slate-900/20",
+        soft: "bg-white/70 text-slate-700 hover:bg-white border border-white/60 focus:ring-slate-300",
+      };
+      return (
+        <button type={type} onClick={onClick} disabled={disabled}
+          className={`${base} ${variants[variant] || variants.primary} ${className}`}>
+          {children}
+        </button>
+      );
+    }
+
+    function Chip({ children, onClick, active, className = "" }) {
+      return (
+        <button type="button" onClick={onClick}
+          className={`px-3 py-1.5 rounded-full text-sm font-medium border transition active:scale-95
+            ${active ? "bg-slate-900 text-white border-slate-900"
+                     : "bg-white/70 text-slate-700 border-white/70 hover:bg-white"} ${className}`}>
+          {children}
+        </button>
+      );
+    }
+
+    function Spinner({ className = "" }) {
+      return (
+        <span className={`inline-block w-5 h-5 rounded-full border-2 border-white/40 border-t-white spin ${className}`} />
+      );
+    }
+
+    // ========================================
+    // 🧩 결과 / 안내 컴포넌트
+    // ========================================
+    function ErrorBox({ message }) {
+      return (
+        <div className="fade-up mt-6 rounded-2xl border border-red-200 bg-red-50/90 p-5 text-center shadow">
+          <div className="text-3xl mb-1">😵</div>
+          <p className="font-semibold text-red-700">{message}</p>
+          <p className="text-sm text-red-500 mt-1">도시 이름을 확인하거나 잠시 후 다시 시도해 주세요.</p>
+        </div>
+      );
+    }
+
+    function ResultCard({ data }) {
+      const theme = tempTheme(data.temperature);
+      const emoji = weatherEmoji(data.weather);
+      const tempText = (data.temperature == null || isNaN(data.temperature))
+        ? "--" : Math.round(data.temperature * 10) / 10;
+
+      return (
+        <div className={`fade-up mt-6 rounded-3xl bg-white/80 backdrop-blur p-6 sm:p-8 shadow-xl ring-4 ${theme.ring}`}>
+          {/* 도시 + 날씨 */}
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <p className="text-sm font-medium text-slate-400">현재 위치</p>
+              <h2 className="text-2xl font-bold text-slate-800">{data.city}</h2>
+              <p className={`mt-1 text-base font-semibold ${theme.accent}`}>
+                {emoji} {data.weather} · {theme.label}
+              </p>
+            </div>
+            <div className="text-6xl sm:text-7xl floaty select-none">{emoji}</div>
+          </div>
+
+          {/* 큰 기온 숫자 */}
+          <div className="mt-2 flex items-end gap-1">
+            <span className={`text-7xl sm:text-8xl font-black leading-none ${theme.bigText}`}>{tempText}</span>
+            <span className={`text-3xl font-bold mb-2 ${theme.bigText}`}>℃</span>
+          </div>
+
+          {/* headline */}
+          {data.headline && (
+            <div className="mt-5 rounded-2xl bg-slate-900 text-white px-5 py-4 text-center shadow-lg">
+              <span className="text-lg sm:text-xl font-extrabold">{data.headline}</span>
+            </div>
+          )}
+
+          {/* items */}
+          {Array.isArray(data.items) && data.items.length > 0 && (
+            <div className="mt-5">
+              <p className="text-sm font-semibold text-slate-500 mb-2">👕 추천 옷차림</p>
+              <div className="flex flex-wrap gap-2">
+                {data.items.map((it, i) => (
+                  <span key={i}
+                    className={`px-3.5 py-1.5 rounded-full text-sm font-semibold border ${theme.chip}`}>
+                    {it}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* comment */}
+          {data.comment && (
+            <p className="mt-5 text-center text-slate-500 leading-relaxed italic">“{data.comment}”</p>
+          )}
+        </div>
+      );
+    }
+
+    // ========================================
+    // 📄 메인 앱
+    // ========================================
+    function App() {
+      const [city, setCity] = useState("서울");
+      const [loading, setLoading] = useState(false);
+      const [data, setData] = useState(null);
+      const [error, setError] = useState(null);
+      const inputRef = useRef(null);
+
+      const bgTheme = data ? tempTheme(data.temperature) : tempTheme(null);
+
+      const fetchRecommend = useCallback(async (target) => {
+        const q = (target || "").trim();
+        if (!q) {
+          setError("도시 이름을 입력해 주세요.");
+          setData(null);
+          return;
+        }
+        setLoading(true);
+        setError(null);
+        try {
+          const res = await fetch(`${API_BASE_URL}/recommend?city=${encodeURIComponent(q)}`);
+          let body = null;
+          try { body = await res.json(); } catch (e) { body = null; }
+
+          if (!res.ok) {
+            setData(null);
+            setError((body && body.error) ? body.error : `요청 실패 (${res.status})`);
+          } else if (body && body.error) {
+            setData(null);
+            setError(body.error);
+          } else {
+            setData(body);
+            setError(null);
+          }
+        } catch (e) {
+          setData(null);
+          setError("서버에 연결할 수 없습니다. 서버(server.js)가 실행 중인지 확인해 주세요.");
+        } finally {
+          setLoading(false);
+        }
+      }, []);
+
+      // 첫 로딩 시 기본 도시 자동 조회
+      useEffect(() => {
+        fetchRecommend("서울");
+      }, [fetchRecommend]);
+
+      const onSubmit = (e) => {
+        if (e) e.preventDefault();
+        fetchRecommend(city);
+      };
+
+      const onChipClick = (c) => {
+        setCity(c);
+        fetchRecommend(c);
+      };
+
+      return (
+        <div className={`min-h-screen w-full bg-gradient-to-br ${bgTheme.bg} transition-colors duration-700`}>
+          <div className="mx-auto max-w-xl px-4 py-8 sm:py-12">
+            {/* 헤더 */}
+            <header className="text-center mb-6">
+              <h1 className="text-3xl sm:text-4xl font-black text-slate-800 tracking-tight">
+                오늘 뭐 입지? <span className="inline-block floaty">🧥</span>
+              </h1>
+              <p className="mt-2 text-slate-500 font-medium">날씨에 딱 맞는 옷차림을 추천해 드려요</p>
+            </header>
+
+            {/* 입력 카드 */}
+            <form onSubmit={onSubmit}
+              className="rounded-3xl bg-white/75 backdrop-blur p-5 sm:p-6 shadow-xl">
+              <div className="flex flex-col sm:flex-row gap-3">
+                <input
+                  ref={inputRef}
+                  value={city}
+                  onChange={(e) => setCity(e.target.value)}
+                  placeholder="도시 이름 (예: 서울, 부산, 제주)"
+                  aria-label="도시 이름"
+                  className="flex-1 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-lg text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-400"
+                />
+                <Button type="submit" disabled={loading} className="sm:w-auto w-full">
+                  {loading ? (<><Spinner /> 조회 중…</>) : (<>추천받기 🔍</>)}
+                </Button>
+              </div>
+
+              {/* 인기 도시 칩 */}
+              <div className="mt-4 flex flex-wrap items-center gap-2">
+                <span className="text-sm font-semibold text-slate-400 mr-1">인기 도시</span>
+                {POPULAR_CITIES.map((c) => (
+                  <Chip key={c} active={city === c} onClick={() => onChipClick(c)}>{c}</Chip>
+                ))}
+              </div>
+            </form>
+
+            {/* 상태별 표시 */}
+            {loading && !data && !error && (
+              <div className="fade-up mt-6 rounded-3xl bg-white/70 p-10 text-center shadow-xl">
+                <div className="mx-auto w-10 h-10 rounded-full border-4 border-slate-200 border-t-slate-700 spin" />
+                <p className="mt-4 text-slate-500 font-medium">날씨를 확인하고 있어요…</p>
+              </div>
+            )}
+
+            {error && <ErrorBox message={error} />}
+
+            {data && !error && <ResultCard data={data} />}
+
+            <footer className="mt-10 text-center text-xs text-slate-400">
+              날씨 옷차림 추천 · React + Tailwind 단일 파일
+            </footer>
+          </div>
+        </div>
+      );
+    }
+
+    // ========================================
+    // 🚀 렌더링
+    // ========================================
+    ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+  </script>
+</body>
+</html>

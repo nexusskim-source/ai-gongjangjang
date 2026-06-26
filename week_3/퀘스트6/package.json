@@ -1,0 +1,12 @@
+{
+  "name": "quest6-weather-outfit",
+  "version": "1.0.0",
+  "description": "날씨 기반 옷차림 추천 서버 (Express + Open-Meteo)",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2"
+  }
+}

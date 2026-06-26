@@ -1,0 +1,426 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>신비로운 해몽가 AI</title>
+
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- React / ReactDOM (UMD, 18.2.0) -->
+  <script src="https://unpkg.com/react@18.2.0/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18.2.0/umd/react-dom.production.min.js" crossorigin></script>
+
+  <!-- ⚠️ Babel standalone 버전 반드시 고정. 무버전/최신은 인라인 text/babel을 모듈로
+       처리해 'Cannot use import statement outside a module'로 빈 화면이 된다. -->
+  <script src="https://unpkg.com/@babel/standalone@7.23.5/babel.min.js"></script>
+
+  <!-- 폰트: 우아한 세리프 제목 -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Gowun+Batang:wght@400;700&family=Noto+Serif+KR:wght@400;600;700&display=swap" rel="stylesheet">
+
+  <style>
+    :root { color-scheme: dark; }
+    html, body, #root { height: 100%; }
+    body {
+      margin: 0;
+      font-family: 'Gowun Batang', 'Noto Serif KR', serif;
+      background-color: #0a0a23;
+    }
+    .font-serif-kr { font-family: 'Noto Serif KR', 'Gowun Batang', serif; }
+
+    /* 밤하늘 그라데이션 */
+    .night-sky {
+      background:
+        radial-gradient(circle at 18% 20%, rgba(120, 99, 230, 0.35), transparent 42%),
+        radial-gradient(circle at 82% 12%, rgba(212, 175, 55, 0.18), transparent 40%),
+        radial-gradient(circle at 50% 95%, rgba(99, 60, 180, 0.30), transparent 55%),
+        linear-gradient(160deg, #0a0a23 0%, #15123a 45%, #1c1240 75%, #0c0a26 100%);
+    }
+
+    /* 별 반짝임 */
+    @keyframes twinkle {
+      0%, 100% { opacity: 0.15; transform: scale(0.8); }
+      50%      { opacity: 1;    transform: scale(1.15); }
+    }
+    .star { position: absolute; background: #fff; border-radius: 9999px; animation: twinkle 3s ease-in-out infinite; }
+
+    /* 수정구 부유 */
+    @keyframes floaty {
+      0%, 100% { transform: translateY(0); }
+      50%      { transform: translateY(-10px); }
+    }
+    .floaty { animation: floaty 4s ease-in-out infinite; }
+
+    /* 수정구 내부 회전 빛 */
+    @keyframes orbspin {
+      0%   { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+    .orbspin { animation: orbspin 6s linear infinite; }
+
+    /* 결과 카드 등장 */
+    @keyframes riseFade {
+      from { opacity: 0; transform: translateY(18px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    .rise-fade { animation: riseFade 0.6s ease-out both; }
+
+    @keyframes glowPulse {
+      0%, 100% { box-shadow: 0 0 22px rgba(212,175,55,0.20); }
+      50%      { box-shadow: 0 0 40px rgba(212,175,55,0.45); }
+    }
+    .glow-gold { animation: glowPulse 3s ease-in-out infinite; }
+
+    .text-gold { color: #e7c66a; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useMemo, useCallback } = React;
+
+    // ========================================
+    // 설정 / API
+    // ========================================
+    const API_BASE_URL =
+      (window.location.protocol === "http:" || window.location.protocol === "https:")
+        ? window.location.origin
+        : "http://localhost:3000";
+
+    const EXAMPLE_DREAMS = [
+      "돼지가 집에 들어오는 꿈",
+      "이가 빠지는 꿈",
+      "높은 곳에서 떨어지는 꿈",
+      "물에 빠지는 꿈",
+    ];
+
+    // omen 값에 따른 테마
+    function omenTheme(omen) {
+      switch (omen) {
+        case "길몽":
+          return {
+            label: "길몽",
+            emoji: "🌟",
+            badge: "bg-emerald-500/20 text-emerald-200 ring-1 ring-emerald-300/40",
+            accent: "text-gold",
+            cardRing: "ring-1 ring-amber-300/30",
+            adviceBox: "bg-amber-500/10 ring-1 ring-amber-300/30 text-amber-100",
+          };
+        case "흉몽":
+          return {
+            label: "흉몽",
+            emoji: "🌑",
+            badge: "bg-rose-900/40 text-rose-200 ring-1 ring-rose-400/40",
+            accent: "text-rose-200",
+            cardRing: "ring-1 ring-rose-400/20",
+            adviceBox: "bg-rose-900/30 ring-1 ring-rose-400/30 text-rose-100",
+          };
+        case "반길몽":
+        default:
+          return {
+            label: omen || "반길몽",
+            emoji: "🌗",
+            badge: "bg-violet-500/20 text-violet-100 ring-1 ring-violet-300/40",
+            accent: "text-violet-200",
+            cardRing: "ring-1 ring-violet-300/25",
+            adviceBox: "bg-violet-500/10 ring-1 ring-amber-300/25 text-amber-100",
+          };
+      }
+    }
+
+    // ========================================
+    // 🎨 디자인 시스템 컴포넌트
+    // ========================================
+
+    // 배경 별 필드
+    function StarField() {
+      const stars = useMemo(() => {
+        const arr = [];
+        for (let i = 0; i < 60; i++) {
+          arr.push({
+            top: Math.random() * 100,
+            left: Math.random() * 100,
+            size: Math.random() * 2 + 1,
+            delay: Math.random() * 3,
+            dur: 2 + Math.random() * 3,
+          });
+        }
+        return arr;
+      }, []);
+      return (
+        <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden="true">
+          {stars.map((s, i) => (
+            <span
+              key={i}
+              className="star"
+              style={{
+                top: s.top + "%",
+                left: s.left + "%",
+                width: s.size + "px",
+                height: s.size + "px",
+                animationDelay: s.delay + "s",
+                animationDuration: s.dur + "s",
+              }}
+            />
+          ))}
+        </div>
+      );
+    }
+
+    // 수정구
+    function CrystalBall({ spinning }) {
+      return (
+        <div className={"relative mx-auto " + (spinning ? "floaty" : "")} aria-hidden="true">
+          <div className="relative w-28 h-28 sm:w-32 sm:h-32 mx-auto">
+            <div className="absolute inset-0 rounded-full glow-gold"
+                 style={{
+                   background: "radial-gradient(circle at 35% 30%, rgba(255,255,255,0.85), rgba(190,170,255,0.55) 35%, rgba(80,50,160,0.7) 70%, rgba(30,18,70,0.95) 100%)",
+                 }}>
+            </div>
+            <div className={"absolute inset-2 rounded-full opacity-60 " + (spinning ? "orbspin" : "")}
+                 style={{
+                   background: "conic-gradient(from 0deg, transparent, rgba(231,198,106,0.5), transparent, rgba(180,150,255,0.5), transparent)",
+                 }}>
+            </div>
+            <div className="absolute top-4 left-5 w-6 h-6 rounded-full bg-white/70 blur-[2px]"></div>
+          </div>
+          {/* 받침대 */}
+          <div className="w-20 h-3 mx-auto mt-1 rounded-full bg-gradient-to-b from-amber-400/80 to-amber-700/80 shadow-lg"></div>
+          <div className="w-12 h-2 mx-auto rounded-b-xl bg-amber-800/70"></div>
+        </div>
+      );
+    }
+
+    // 예시 칩
+    function DreamChip({ text, onClick, disabled }) {
+      return (
+        <button
+          type="button"
+          onClick={() => onClick(text)}
+          disabled={disabled}
+          className="px-3.5 py-1.5 rounded-full text-sm bg-white/5 text-indigo-100 ring-1 ring-white/15
+                     hover:bg-white/10 hover:ring-amber-300/40 hover:text-amber-100 transition
+                     disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {text}
+        </button>
+      );
+    }
+
+    // 주요 버튼
+    function PrimaryButton({ children, onClick, disabled, loading }) {
+      return (
+        <button
+          type="button"
+          onClick={onClick}
+          disabled={disabled}
+          className="w-full sm:w-auto px-8 py-3 rounded-xl font-serif-kr font-semibold tracking-wide
+                     text-indigo-950 bg-gradient-to-r from-amber-300 via-yellow-200 to-amber-400
+                     shadow-[0_0_25px_rgba(212,175,55,0.35)] hover:shadow-[0_0_35px_rgba(212,175,55,0.55)]
+                     hover:brightness-105 active:scale-[0.98] transition
+                     disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:shadow-none"
+        >
+          {loading ? "점괘를 읽는 중…" : children}
+        </button>
+      );
+    }
+
+    // ========================================
+    // 🧩 결과 / 상태 컴포넌트
+    // ========================================
+
+    function LoadingOracle() {
+      return (
+        <div className="rise-fade mt-8 flex flex-col items-center gap-5 text-center">
+          <CrystalBall spinning={true} />
+          <p className="font-serif-kr text-lg text-amber-100/90">
+            점술가가 수정구를 들여다보는 중<span className="inline-block animate-pulse">…</span>
+          </p>
+          <p className="text-sm text-indigo-200/70">별빛이 당신의 꿈에 깃든 뜻을 비추고 있습니다</p>
+        </div>
+      );
+    }
+
+    function ErrorBox({ message }) {
+      return (
+        <div className="rise-fade mt-8 rounded-2xl bg-rose-950/50 ring-1 ring-rose-400/40 p-5 text-center" role="alert">
+          <div className="text-2xl mb-1">🌑</div>
+          <p className="font-serif-kr text-rose-100 font-semibold mb-1">점괘를 받아오지 못했습니다</p>
+          <p className="text-sm text-rose-200/90 whitespace-pre-wrap">{message}</p>
+        </div>
+      );
+    }
+
+    function ResultCard({ result }) {
+      const theme = omenTheme(result.omen);
+      return (
+        <div className={"rise-fade mt-8 rounded-3xl bg-indigo-950/50 backdrop-blur-sm p-6 sm:p-8 " + theme.cardRing}>
+          {/* 배지 */}
+          <div className="flex justify-center">
+            <span className={"inline-flex items-center gap-2 px-5 py-2 rounded-full text-lg font-serif-kr font-bold " + theme.badge}>
+              <span className="text-2xl">{theme.emoji}</span>
+              {theme.label}
+            </span>
+          </div>
+
+          {/* 해몽 풀이 */}
+          <div className="mt-7">
+            <h3 className={"font-serif-kr text-sm tracking-widest uppercase mb-2 " + theme.accent}>해몽 풀이</h3>
+            <p className="font-serif-kr text-[1.02rem] leading-relaxed text-indigo-50/95 whitespace-pre-wrap">
+              {result.interpretation}
+            </p>
+          </div>
+
+          {/* 오늘의 조언 */}
+          {result.advice && (
+            <div className={"mt-7 rounded-2xl p-5 " + theme.adviceBox}>
+              <p className="font-serif-kr text-sm font-semibold mb-1.5">🔮 오늘의 조언</p>
+              <p className="font-serif-kr leading-relaxed whitespace-pre-wrap">{result.advice}</p>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // ========================================
+    // 📄 메인 앱
+    // ========================================
+    function App() {
+      const [dream, setDream] = useState("");
+      const [loading, setLoading] = useState(false);
+      const [result, setResult] = useState(null);
+      const [error, setError] = useState("");
+
+      const trimmed = dream.trim();
+      const canSubmit = trimmed.length > 0 && !loading;
+
+      const fillExample = useCallback((text) => {
+        setDream(text);
+      }, []);
+
+      const handleInterpret = useCallback(async () => {
+        if (!trimmed) return;
+        setLoading(true);
+        setError("");
+        setResult(null);
+        try {
+          const res = await fetch(API_BASE_URL + "/api/dream", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ dream: trimmed }),
+          });
+
+          let data = null;
+          try { data = await res.json(); } catch (e) { data = null; }
+
+          if (!res.ok) {
+            const msg = (data && data.error) ? data.error : ("서버 오류가 발생했습니다 (HTTP " + res.status + ")");
+            setError(msg);
+            return;
+          }
+          if (!data || (!data.interpretation && !data.omen)) {
+            setError("점괘 응답 형식을 이해하지 못했습니다. 잠시 후 다시 시도해 주세요.");
+            return;
+          }
+          setResult(data);
+        } catch (e) {
+          setError("점성소와 연결할 수 없습니다. 서버(" + API_BASE_URL + ")가 켜져 있는지 확인해 주세요.");
+        } finally {
+          setLoading(false);
+        }
+      }, [trimmed]);
+
+      return (
+        <div className="night-sky min-h-full relative">
+          <StarField />
+          {/* 달 */}
+          <div className="pointer-events-none absolute top-6 right-8 sm:right-16 text-5xl sm:text-6xl opacity-90" aria-hidden="true">🌙</div>
+
+          <main className="relative z-10 max-w-2xl mx-auto px-5 sm:px-6 py-12 sm:py-16">
+            {/* 헤더 */}
+            <header className="text-center">
+              <div className="text-4xl mb-3">✨🔮✨</div>
+              <h1 className="font-serif-kr text-3xl sm:text-4xl font-bold text-gold drop-shadow-[0_2px_12px_rgba(212,175,55,0.35)]">
+                신비로운 해몽가 AI
+              </h1>
+              <p className="mt-3 text-indigo-200/80 font-serif-kr">
+                별과 달이 속삭이는 당신의 꿈, 그 숨겨진 뜻을 풀어 드립니다
+              </p>
+            </header>
+
+            {/* 입력 카드 */}
+            <section className="mt-9 rounded-3xl bg-indigo-950/40 backdrop-blur-sm ring-1 ring-white/10 p-6 sm:p-7 shadow-2xl">
+              <label htmlFor="dream-input" className="block font-serif-kr text-amber-100/90 mb-2">
+                어젯밤 어떤 꿈을 꾸셨나요?
+              </label>
+              <textarea
+                id="dream-input"
+                value={dream}
+                onChange={(e) => setDream(e.target.value)}
+                rows={5}
+                placeholder="꿈의 내용을 자유롭게 들려주세요… (예: 맑은 강물 위로 커다란 잉어가 뛰어올랐어요)"
+                disabled={loading}
+                className="w-full resize-y rounded-2xl bg-black/30 text-indigo-50 placeholder-indigo-300/40
+                           ring-1 ring-white/15 focus:ring-2 focus:ring-amber-300/60 focus:outline-none
+                           p-4 leading-relaxed font-serif-kr transition disabled:opacity-60"
+              />
+
+              {/* 예시 칩 */}
+              <div className="mt-4">
+                <p className="text-xs text-indigo-300/70 mb-2 tracking-wide">자주 꾸는 꿈 ·  눌러서 채우기</p>
+                <div className="flex flex-wrap gap-2">
+                  {EXAMPLE_DREAMS.map((ex) => (
+                    <DreamChip key={ex} text={ex} onClick={fillExample} disabled={loading} />
+                  ))}
+                </div>
+              </div>
+
+              {/* 버튼 + 안내 */}
+              <div className="mt-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                <p className="text-xs text-indigo-300/60 order-2 sm:order-1">
+                  {trimmed.length === 0
+                    ? "꿈 내용을 입력하면 점을 볼 수 있어요"
+                    : "준비되었습니다 — 수정구를 들여다볼까요?"}
+                </p>
+                <div className="order-1 sm:order-2">
+                  <PrimaryButton onClick={handleInterpret} disabled={!canSubmit} loading={loading}>
+                    🔮 해몽하기
+                  </PrimaryButton>
+                </div>
+              </div>
+            </section>
+
+            {/* 상태 영역 */}
+            {loading && <LoadingOracle />}
+            {!loading && error && <ErrorBox message={error} />}
+            {!loading && !error && result && <ResultCard result={result} />}
+
+            {/* 첫 화면 안내 (입력 전) */}
+            {!loading && !error && !result && (
+              <div className="mt-8 text-center">
+                <CrystalBall spinning={false} />
+                <p className="mt-4 text-sm text-indigo-300/60 font-serif-kr">
+                  수정구가 당신의 꿈 이야기를 기다리고 있습니다…
+                </p>
+              </div>
+            )}
+
+            <footer className="mt-14 text-center text-xs text-indigo-300/40 font-serif-kr">
+              ✦ 해몽은 재미로 즐기는 점술입니다 ✦
+            </footer>
+          </main>
+        </div>
+      );
+    }
+
+    // ========================================
+    // 렌더링
+    // ========================================
+    ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+  </script>
+</body>
+</html>
