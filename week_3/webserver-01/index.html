@@ -1,0 +1,545 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>오늘의 날씨</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone@7.23.5/babel.min.js"></script>
+  <style>
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .spinner { animation: spin 0.8s linear infinite; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+    .fade-in { animation: fadeIn 0.4s ease-out; }
+    /* 그라데이션 전환을 부드럽게 */
+    body { transition: background 1.2s ease; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/babel">
+    // ========================================
+    // React Hooks
+    // ========================================
+    const { useState, useEffect, useCallback, useRef } = React;
+
+    // ========================================
+    // ⏰ 한국 표준시(KST) 실시간 시계 훅
+    //  - timeZone을 Asia/Seoul로 고정해 PC 시간대와 무관하게 항상 한국 시각 표시
+    //  - 1초마다 갱신, unmount 시 clearInterval로 정리
+    // ========================================
+    function useKoreanClock() {
+      const [now, setNow] = useState(new Date());
+      useEffect(() => {
+        const id = setInterval(() => setNow(new Date()), 1000);
+        return () => clearInterval(id);
+      }, []);
+      const timeStr = new Intl.DateTimeFormat('ko-KR', {
+        timeZone: 'Asia/Seoul', hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true,
+      }).format(now);
+      const dateStr = new Intl.DateTimeFormat('ko-KR', {
+        timeZone: 'Asia/Seoul', year: 'numeric', month: 'long', day: 'numeric', weekday: 'long',
+      }).format(now);
+      return { timeStr, dateStr };
+    }
+
+    // ========================================
+    // 유틸: WMO weather_code → 한글 설명 + 이모지
+    // ========================================
+    function describeWeather(code, isDay) {
+      const map = {
+        0:  ['맑음', '☀️'],
+        1:  ['대체로 맑음', '🌤️'],
+        2:  ['구름 조금', '⛅'],
+        3:  ['흐림', '☁️'],
+        45: ['안개', '🌫️'], 48: ['안개', '🌫️'],
+        51: ['이슬비', '🌦️'], 53: ['이슬비', '🌦️'], 55: ['이슬비', '🌦️'],
+        56: ['어는 이슬비', '🌧️'], 57: ['어는 이슬비', '🌧️'],
+        61: ['비', '🌧️'], 63: ['비', '🌧️'], 65: ['비', '🌧️'],
+        66: ['어는 비', '🌧️'], 67: ['어는 비', '🌧️'],
+        71: ['눈', '🌨️'], 73: ['눈', '🌨️'], 75: ['눈', '🌨️'],
+        77: ['싸락눈', '🌨️'],
+        80: ['소나기', '🌦️'], 81: ['소나기', '🌦️'], 82: ['소나기', '🌦️'],
+        85: ['소나기성 눈', '🌨️'], 86: ['소나기성 눈', '🌨️'],
+        95: ['뇌우', '⛈️'],
+        96: ['우박 동반 뇌우', '⛈️'], 99: ['우박 동반 뇌우', '⛈️'],
+      };
+      const entry = map[code];
+      if (!entry) return { text: '정보없음', icon: '❓' };
+      let [text, icon] = entry;
+      // 밤이고 맑음 계열이면 달로 교체
+      if (isDay === 0 && (code === 0 || code === 1)) icon = '🌙';
+      return { text, icon };
+    }
+
+    // ========================================
+    // 유틸: 배경 그라데이션 (낮/밤 + 날씨)
+    // ========================================
+    function backgroundFor(code, isDay) {
+      const night = isDay === 0;
+      // 비/눈/뇌우 계열
+      const isRain = (code >= 51 && code <= 67) || (code >= 80 && code <= 82);
+      const isSnow = (code >= 71 && code <= 77) || code === 85 || code === 86;
+      const isStorm = code >= 95;
+      const isCloud = code === 2 || code === 3 || code === 45 || code === 48;
+
+      if (isStorm) return 'linear-gradient(160deg, #3a3a52 0%, #1f2937 100%)';
+      if (isRain) return night
+        ? 'linear-gradient(160deg, #3b4a5a 0%, #1e293b 100%)'
+        : 'linear-gradient(160deg, #6b7c8c 0%, #94a3b8 100%)';
+      if (isSnow) return night
+        ? 'linear-gradient(160deg, #4b5563 0%, #1f2937 100%)'
+        : 'linear-gradient(160deg, #cbd5e1 0%, #94a3b8 100%)';
+      if (isCloud) return night
+        ? 'linear-gradient(160deg, #334155 0%, #0f172a 100%)'
+        : 'linear-gradient(160deg, #7c93a8 0%, #b6c4d2 100%)';
+      // 맑음 계열
+      return night
+        ? 'linear-gradient(160deg, #1e3a8a 0%, #0f172a 100%)'
+        : 'linear-gradient(160deg, #3b82f6 0%, #60a5fa 55%, #93c5fd 100%)';
+    }
+
+    // ========================================
+    // 유틸: 날짜/포맷
+    // ========================================
+    function round(n) { return Math.round(n); }
+
+    function formatToday() {
+      const d = new Date();
+      const days = ['일', '월', '화', '수', '목', '금', '토'];
+      return `${d.getMonth() + 1}월 ${d.getDate()}일 (${days[d.getDay()]})`;
+    }
+
+    function weekdayOf(dateStr) {
+      const days = ['일', '월', '화', '수', '목', '금', '토'];
+      const d = new Date(dateStr + 'T00:00:00');
+      return days[d.getDay()];
+    }
+
+    function isTodayStr(dateStr) {
+      const d = new Date();
+      const t = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+      return t === dateStr;
+    }
+
+    // ========================================
+    // 🎨 Design System Components
+    // ========================================
+    function Button({ children, onClick, variant = 'primary', className = '', disabled, type = 'button', ariaLabel }) {
+      const base = 'inline-flex items-center justify-center gap-1.5 rounded-full font-medium transition active:scale-95 focus:outline-none focus:ring-2 focus:ring-white/60 disabled:opacity-50 disabled:cursor-not-allowed';
+      const variants = {
+        primary: 'bg-white/90 text-slate-800 hover:bg-white px-4 py-2 text-sm shadow',
+        ghost: 'bg-white/20 text-white hover:bg-white/30 px-4 py-2 text-sm backdrop-blur',
+      };
+      return (
+        <button type={type} onClick={onClick} disabled={disabled} aria-label={ariaLabel}
+          className={`${base} ${variants[variant] || variants.primary} ${className}`}>
+          {children}
+        </button>
+      );
+    }
+
+    function Spinner() {
+      return (
+        <div className="flex flex-col items-center justify-center gap-3 py-16 text-white/90">
+          <div className="spinner h-10 w-10 rounded-full border-4 border-white/30 border-t-white"></div>
+          <p className="text-sm">날씨를 불러오는 중...</p>
+        </div>
+      );
+    }
+
+    function GlassCard({ children, className = '' }) {
+      return (
+        <div className={`rounded-3xl bg-white/15 backdrop-blur-md border border-white/20 shadow-xl ${className}`}>
+          {children}
+        </div>
+      );
+    }
+
+    // 🇰🇷 한국 시각 실시간 표시 (글래스 톤, 작고 깔끔하게)
+    function KoreanClock() {
+      const { timeStr, dateStr } = useKoreanClock();
+      return (
+        <div className="mx-auto mt-3 inline-flex flex-col items-center gap-0.5 rounded-2xl bg-white/15 px-4 py-2 backdrop-blur-md border border-white/20 shadow"
+             role="timer" aria-live="off" aria-label={`한국 시각 ${dateStr} ${timeStr}`}>
+          <span className="text-[11px] font-medium tracking-wide text-white/70">🇰🇷 한국 시각 (KST)</span>
+          <span className="text-xl font-semibold tabular-nums text-white sm:text-2xl">{timeStr}</span>
+          <span className="text-[11px] text-white/60">{dateStr}</span>
+        </div>
+      );
+    }
+
+    function MetricItem({ icon, label, value }) {
+      return (
+        <div className="flex flex-col items-center justify-center rounded-2xl bg-white/10 px-2 py-3 text-center">
+          <span className="text-xl" aria-hidden="true">{icon}</span>
+          <span className="mt-1 text-[11px] text-white/70">{label}</span>
+          <span className="mt-0.5 text-sm font-semibold text-white">{value}</span>
+        </div>
+      );
+    }
+
+    // ========================================
+    // 📡 API 호출
+    // ========================================
+    const GEO_URL = 'https://geocoding-api.open-meteo.com/v1/search';
+    const FORECAST_URL = 'https://api.open-meteo.com/v1/forecast';
+
+    // Open-Meteo 지오코딩은 한글 도시명("서울","부산" 등)을 못 찾는 경우가 많아
+    // (응답 name은 한글로 오지만, 검색 인덱스는 로마자/원어 기준) 별칭으로 보완한다.
+    const CITY_ALIAS = {
+      '서울': 'Seoul', '부산': 'Busan', '인천': 'Incheon', '대구': 'Daegu',
+      '대전': 'Daejeon', '광주': 'Gwangju', '울산': 'Ulsan', '세종': 'Sejong',
+      '수원': 'Suwon', '성남': 'Seongnam', '용인': 'Yongin', '고양': 'Goyang',
+      '창원': 'Changwon', '청주': 'Cheongju', '전주': 'Jeonju', '천안': 'Cheonan',
+      '제주': 'Jeju', '춘천': 'Chuncheon', '강릉': 'Gangneung', '포항': 'Pohang',
+      '경기': 'Gyeonggi', '강원': 'Gangwon',
+    };
+
+    async function rawGeocode(query) {
+      const url = `${GEO_URL}?name=${encodeURIComponent(query)}&count=5&language=ko&format=json`;
+      const res = await fetch(url);
+      if (!res.ok) throw new Error('지오코딩 실패');
+      const data = await res.json();
+      return Array.isArray(data.results) ? data.results : [];
+    }
+
+    async function geocode(query) {
+      let results = await rawGeocode(query);
+      // 한글 검색이 0건이면 별칭(로마자)으로 한 번 더 시도
+      if (results.length === 0) {
+        const alias = CITY_ALIAS[query.trim()];
+        if (alias) results = await rawGeocode(alias);
+      }
+      return results;
+    }
+
+    async function fetchForecast(lat, lon) {
+      const params = new URLSearchParams({
+        latitude: lat,
+        longitude: lon,
+        current: 'temperature_2m,relative_humidity_2m,apparent_temperature,is_day,precipitation,weather_code,wind_speed_10m',
+        daily: 'weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max',
+        timezone: 'auto',
+      });
+      const res = await fetch(`${FORECAST_URL}?${params.toString()}`);
+      if (!res.ok) throw new Error('예보 실패');
+      return res.json();
+    }
+
+    // 도시 라벨: name과 admin1이 같으면(예: 서울특별시) 중복 제거
+    function cityLabelOf(c) {
+      if (c.admin1 && c.admin1 !== c.name) return `${c.name}, ${c.admin1}`;
+      return c.name;
+    }
+
+    // ========================================
+    // 🧩 검색창 컴포넌트
+    // ========================================
+    function SearchBar({ onSelectCity, onUseMyLocation, geoLoading }) {
+      const [query, setQuery] = useState('');
+      const [results, setResults] = useState(null); // null=닫힘, []=검색결과없음
+      const [searching, setSearching] = useState(false);
+      const [searchErr, setSearchErr] = useState(null);
+      const boxRef = useRef(null);
+
+      // 바깥 클릭 시 목록 닫기
+      useEffect(() => {
+        function onDocClick(e) {
+          if (boxRef.current && !boxRef.current.contains(e.target)) setResults(null);
+        }
+        document.addEventListener('mousedown', onDocClick);
+        return () => document.removeEventListener('mousedown', onDocClick);
+      }, []);
+
+      const doSearch = async (e) => {
+        e.preventDefault();
+        const q = query.trim();
+        if (!q) return;
+        setSearching(true);
+        setSearchErr(null);
+        setResults(null);
+        try {
+          const list = await geocode(q);
+          setResults(list);
+        } catch (err) {
+          setSearchErr('검색에 실패했어요. 다시 시도해 주세요.');
+        } finally {
+          setSearching(false);
+        }
+      };
+
+      const pick = (city) => {
+        setResults(null);
+        setQuery('');
+        onSelectCity(city);
+      };
+
+      return (
+        <div className="relative" ref={boxRef}>
+          <form onSubmit={doSearch} className="flex gap-2">
+            <input
+              type="text"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="도시 이름을 검색하세요 (예: 부산)"
+              aria-label="도시 검색"
+              className="flex-1 rounded-full bg-white/90 px-5 py-2.5 text-sm text-slate-800 placeholder-slate-400 shadow focus:outline-none focus:ring-2 focus:ring-white"
+            />
+            <Button type="submit" variant="primary" disabled={searching} ariaLabel="검색">
+              {searching ? '검색중' : '검색'}
+            </Button>
+            <Button type="button" variant="ghost" onClick={onUseMyLocation} disabled={geoLoading} ariaLabel="내 위치">
+              📍 내 위치
+            </Button>
+          </form>
+
+          {(results !== null || searchErr) && (
+            <div className="absolute z-20 mt-2 w-full overflow-hidden rounded-2xl bg-white shadow-2xl">
+              {searchErr && <p className="px-4 py-3 text-sm text-rose-600">{searchErr}</p>}
+              {results !== null && results.length === 0 && (
+                <p className="px-4 py-3 text-sm text-slate-500">검색 결과가 없어요. 다른 이름으로 검색해 보세요.</p>
+              )}
+              {results && results.map((c, i) => (
+                <button
+                  key={`${c.latitude}-${c.longitude}-${i}`}
+                  onClick={() => pick(c)}
+                  className="flex w-full items-center justify-between gap-2 px-4 py-3 text-left text-sm text-slate-700 hover:bg-slate-100"
+                >
+                  <span className="font-medium">{c.name}</span>
+                  <span className="text-xs text-slate-400">
+                    {[c.admin1, c.country].filter(Boolean).join(', ')}
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // ========================================
+    // 🧩 메인 날씨 카드
+    // ========================================
+    function WeatherCard({ data, cityLabel }) {
+      const c = data.current;
+      const daily = data.daily;
+      const desc = describeWeather(c.weather_code, c.is_day);
+      const todayMax = round(daily.temperature_2m_max[0]);
+      const todayMin = round(daily.temperature_2m_min[0]);
+      const pop = daily.precipitation_probability_max[0];
+
+      return (
+        <GlassCard className="fade-in p-6 sm:p-8">
+          {/* 상단 도시/날짜 */}
+          <div className="text-center text-white">
+            <h2 className="text-xl font-bold sm:text-2xl">{cityLabel}</h2>
+            <p className="mt-0.5 text-sm text-white/70">{formatToday()}</p>
+          </div>
+
+          {/* 큰 기온 + 이모지 */}
+          <div className="mt-6 flex items-center justify-center gap-4 text-white">
+            <span className="text-7xl leading-none sm:text-8xl" aria-hidden="true">{desc.icon}</span>
+            <div className="text-left">
+              <div className="text-6xl font-extralight leading-none sm:text-7xl">{round(c.temperature_2m)}°</div>
+              <div className="mt-1 text-lg text-white/90">{desc.text}</div>
+            </div>
+          </div>
+
+          {/* 메트릭 그리드 */}
+          <div className="mt-7 grid grid-cols-3 gap-2 sm:grid-cols-6">
+            <MetricItem icon="🌡️" label="체감" value={`${round(c.apparent_temperature)}°`} />
+            <MetricItem icon="💧" label="습도" value={`${round(c.relative_humidity_2m)}%`} />
+            <MetricItem icon="💨" label="풍속" value={`${round(c.wind_speed_10m)} km/h`} />
+            <MetricItem icon="☔" label="강수확률" value={pop == null ? '-' : `${round(pop)}%`} />
+            <MetricItem icon="🔺" label="최고" value={`${todayMax}°`} />
+            <MetricItem icon="🔻" label="최저" value={`${todayMin}°`} />
+          </div>
+        </GlassCard>
+      );
+    }
+
+    // ========================================
+    // 🧩 며칠 예보 카드들
+    // ========================================
+    function Forecast({ daily }) {
+      const days = [];
+      const len = Math.min(daily.time.length, 6);
+      // 오늘 다음날부터 최대 5일
+      for (let i = 1; i < len; i++) {
+        days.push(i);
+      }
+      if (days.length === 0) return null;
+
+      return (
+        <GlassCard className="fade-in mt-4 p-4 sm:p-5">
+          <h3 className="mb-3 px-1 text-sm font-semibold text-white/90">다음 예보</h3>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+            {days.map((i) => {
+              const d = describeWeather(daily.weather_code[i], 1);
+              return (
+                <div key={daily.time[i]} className="flex flex-col items-center rounded-2xl bg-white/10 px-2 py-3 text-white">
+                  <span className="text-xs text-white/70">{weekdayOf(daily.time[i])}요일</span>
+                  <span className="my-1 text-3xl" aria-hidden="true">{d.icon}</span>
+                  <span className="text-[11px] text-white/70">{d.text}</span>
+                  <span className="mt-1 text-sm font-semibold">
+                    {round(daily.temperature_2m_max[i])}° <span className="text-white/60">/ {round(daily.temperature_2m_min[i])}°</span>
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </GlassCard>
+      );
+    }
+
+    // ========================================
+    // 🚀 App
+    // ========================================
+    function App() {
+      const [weather, setWeather] = useState(null);
+      const [cityLabel, setCityLabel] = useState('');
+      const [loading, setLoading] = useState(true);
+      const [error, setError] = useState(null);
+      const [geoLoading, setGeoLoading] = useState(false);
+
+      // 마지막 요청을 기억해 "다시 시도" 지원
+      const lastReq = useRef(null);
+
+      const loadByCoords = useCallback(async (lat, lon, label) => {
+        lastReq.current = { type: 'coords', lat, lon, label };
+        setLoading(true);
+        setError(null);
+        try {
+          const data = await fetchForecast(lat, lon);
+          setWeather(data);
+          setCityLabel(label);
+        } catch (err) {
+          setError('날씨를 불러오지 못했어요.');
+        } finally {
+          setLoading(false);
+        }
+      }, []);
+
+      const loadByCityName = useCallback(async (name) => {
+        lastReq.current = { type: 'name', name };
+        setLoading(true);
+        setError(null);
+        try {
+          const list = await geocode(name);
+          if (!list || list.length === 0) {
+            setError(`'${name}'에 대한 도시를 찾지 못했어요.`);
+            setLoading(false);
+            return;
+          }
+          const c = list[0];
+          await loadByCoords(c.latitude, c.longitude, cityLabelOf(c));
+        } catch (err) {
+          setError('날씨를 불러오지 못했어요.');
+          setLoading(false);
+        }
+      }, [loadByCoords]);
+
+      // 검색 결과에서 도시 선택
+      const handleSelectCity = useCallback((c) => {
+        loadByCoords(c.latitude, c.longitude, cityLabelOf(c));
+      }, [loadByCoords]);
+
+      // 내 위치
+      const handleUseMyLocation = useCallback(() => {
+        if (!navigator.geolocation) {
+          setError('이 브라우저에서는 위치 기능을 사용할 수 없어요.');
+          return;
+        }
+        setGeoLoading(true);
+        navigator.geolocation.getCurrentPosition(
+          (pos) => {
+            setGeoLoading(false);
+            loadByCoords(pos.coords.latitude, pos.coords.longitude, '현재 위치');
+          },
+          (err) => {
+            setGeoLoading(false);
+            setError('위치 정보를 가져오지 못했어요. 위치 권한을 허용했는지 확인해 주세요.');
+          },
+          { enableHighAccuracy: false, timeout: 10000 }
+        );
+      }, [loadByCoords]);
+
+      // 다시 시도
+      const retry = useCallback(() => {
+        const r = lastReq.current;
+        if (!r) { loadByCityName('서울'); return; }
+        if (r.type === 'coords') loadByCoords(r.lat, r.lon, r.label);
+        else loadByCityName(r.name);
+      }, [loadByCoords, loadByCityName]);
+
+      // 최초 로드: 서울
+      useEffect(() => {
+        loadByCityName('서울');
+      }, [loadByCityName]);
+
+      // 배경 적용
+      useEffect(() => {
+        let bg;
+        if (weather && weather.current) {
+          bg = backgroundFor(weather.current.weather_code, weather.current.is_day);
+        } else {
+          bg = 'linear-gradient(160deg, #3b82f6 0%, #60a5fa 55%, #93c5fd 100%)';
+        }
+        document.body.style.background = bg;
+        document.body.style.minHeight = '100vh';
+      }, [weather]);
+
+      return (
+        <div className="min-h-screen px-4 py-6 sm:py-10">
+          <div className="mx-auto w-full max-w-2xl">
+            <header className="mb-5 text-center text-white">
+              <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">🌈 오늘의 날씨</h1>
+              <p className="mt-1 text-sm text-white/70">실시간 날씨를 확인하세요</p>
+              <KoreanClock />
+            </header>
+
+            <SearchBar
+              onSelectCity={handleSelectCity}
+              onUseMyLocation={handleUseMyLocation}
+              geoLoading={geoLoading}
+            />
+
+            <main className="mt-5">
+              {loading && <Spinner />}
+
+              {!loading && error && (
+                <GlassCard className="fade-in p-8 text-center text-white">
+                  <p className="text-3xl" aria-hidden="true">😢</p>
+                  <p className="mt-3 text-sm">{error}</p>
+                  <div className="mt-4">
+                    <Button variant="primary" onClick={retry}>다시 시도</Button>
+                  </div>
+                </GlassCard>
+              )}
+
+              {!loading && !error && weather && (
+                <>
+                  <WeatherCard data={weather} cityLabel={cityLabel} />
+                  <Forecast daily={weather.daily} />
+                </>
+              )}
+            </main>
+
+            <footer className="mt-8 text-center text-xs text-white/50">
+              데이터 제공: Open-Meteo
+            </footer>
+          </div>
+        </div>
+      );
+    }
+
+    // ========================================
+    // Rendering
+    // ========================================
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>

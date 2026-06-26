@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>르느와르 화풍 이미지 생성기</title>
+
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- React / ReactDOM UMD (18.2.0) -->
+  <script crossorigin src="https://unpkg.com/react@18.2.0/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18.2.0/umd/react-dom.production.min.js"></script>
+
+  <!-- ⚠️ Babel standalone 버전 고정 필수: 7.23.5. 무버전/최신 사용 시 빈 화면 발생 -->
+  <script src="https://unpkg.com/@babel/standalone@7.23.5/babel.min.js"></script>
+
+  <style>
+    /* Tailwind 유틸리티로 표현하기 어려운 부분만 커스텀 */
+
+    /* 로딩 점 애니메이션 */
+    @keyframes brushDot {
+      0%, 80%, 100% { opacity: 0.2; transform: translateY(0); }
+      40% { opacity: 1; transform: translateY(-4px); }
+    }
+    .brush-dot {
+      display: inline-block;
+      animation: brushDot 1.2s infinite ease-in-out both;
+    }
+    .brush-dot:nth-child(2) { animation-delay: 0.2s; }
+    .brush-dot:nth-child(3) { animation-delay: 0.4s; }
+
+    /* 캔버스 페이드인 */
+    @keyframes fadeInUp {
+      from { opacity: 0; transform: translateY(12px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .fade-in-up { animation: fadeInUp 0.6s ease-out both; }
+
+    /* 액자 안쪽 매트(passe-partout) 질감 */
+    .frame-mat {
+      background:
+        linear-gradient(135deg, rgba(255,255,255,0.6), rgba(255,250,244,0.2));
+    }
+
+    /* 따뜻한 미술관 배경 텍스처 */
+    body {
+      background-color: #faf3ea;
+      background-image:
+        radial-gradient(circle at 20% 20%, rgba(244, 194, 194, 0.18), transparent 45%),
+        radial-gradient(circle at 80% 30%, rgba(196, 215, 184, 0.18), transparent 45%),
+        radial-gradient(circle at 50% 90%, rgba(247, 213, 169, 0.20), transparent 50%);
+    }
+
+    /* placeholder의 부드러운 펄스 */
+    @keyframes softPulse {
+      0%, 100% { opacity: 0.55; }
+      50% { opacity: 0.85; }
+    }
+    .soft-pulse { animation: softPulse 3s ease-in-out infinite; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel">
+    // ========================================
+    // React Hooks 추출
+    // ========================================
+    const { useState, useRef, useCallback } = React;
+
+    // ========================================
+    // 서버 API 규약
+    // 파일로 직접 열어도(file://) 동작하도록 localhost 폴백
+    // ========================================
+    const API_BASE_URL =
+      (window.location.protocol === "http:" || window.location.protocol === "https:")
+        ? window.location.origin
+        : "http://localhost:3000";
+
+    // 예시 프롬프트 칩
+    const EXAMPLE_PROMPTS = [
+      "공원에서 책 읽는 여인",
+      "강가의 보트 타는 사람들",
+      "햇살 드는 카페 테라스",
+      "정원에서 양산을 든 소녀",
+      "꽃이 핀 들판을 걷는 가족",
+    ];
+
+    // ========================================
+    // 🎨 디자인 시스템 컴포넌트
+    // ========================================
+
+    // 버튼: variant(primary, ghost), 비즈니스 로직 없음
+    function Button({ variant = "primary", disabled, onClick, className = "", children, type = "button" }) {
+      const base =
+        "inline-flex items-center justify-center gap-2 rounded-2xl font-semibold transition-all duration-200 focus:outline-none focus-visible:ring-4 focus-visible:ring-rose-200 disabled:cursor-not-allowed";
+      const variants = {
+        primary:
+          "bg-gradient-to-br from-rose-400 to-amber-400 text-white px-6 py-3 shadow-lg shadow-rose-200/60 hover:from-rose-500 hover:to-amber-500 hover:shadow-xl active:scale-[0.98] disabled:opacity-50 disabled:shadow-none",
+        ghost:
+          "bg-white/70 text-stone-700 px-4 py-2 border border-stone-200 hover:bg-white hover:border-rose-200 active:scale-[0.98] disabled:opacity-50",
+      };
+      return (
+        <button
+          type={type}
+          onClick={onClick}
+          disabled={disabled}
+          className={`${base} ${variants[variant]} ${className}`}
+        >
+          {children}
+        </button>
+      );
+    }
+
+    // 칩: 예시 프롬프트
+    function Chip({ label, onClick, disabled }) {
+      return (
+        <button
+          type="button"
+          onClick={onClick}
+          disabled={disabled}
+          className="rounded-full border border-rose-200/80 bg-white/60 px-3.5 py-1.5 text-sm text-stone-600 transition-all hover:bg-rose-50 hover:border-rose-300 hover:text-rose-700 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          {label}
+        </button>
+      );
+    }
+
+    // 카드: 부드러운 그림자 + 둥근 모서리
+    function Card({ className = "", children }) {
+      return (
+        <div className={`rounded-3xl bg-white/70 backdrop-blur-sm shadow-xl shadow-stone-300/30 ${className}`}>
+          {children}
+        </div>
+      );
+    }
+
+    // 에러 박스
+    function ErrorBox({ message }) {
+      return (
+        <div
+          role="alert"
+          className="fade-in-up rounded-2xl border border-red-200 bg-red-50/90 px-5 py-4 text-left"
+        >
+          <div className="flex items-start gap-3">
+            <span className="text-xl leading-none">🎨💧</span>
+            <div>
+              <p className="font-bold text-red-700">이미지를 생성하지 못했어요</p>
+              <p className="mt-1 text-sm text-red-600 break-words">{message}</p>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // 로딩 인디케이터: "르느와르가 붓을 들고 있어요…"
+    function LoadingState() {
+      return (
+        <div className="fade-in-up flex flex-col items-center justify-center gap-4 py-16 text-center">
+          <div className="text-5xl soft-pulse">🖌️</div>
+          <p className="text-lg font-medium text-stone-600">
+            르느와르가 붓을 들고 있어요
+            <span className="brush-dot">.</span>
+            <span className="brush-dot">.</span>
+            <span className="brush-dot">.</span>
+          </p>
+          <p className="text-sm text-stone-400">
+            인상주의 화풍으로 그리는 중 (20~40초 정도 걸려요)
+          </p>
+        </div>
+      );
+    }
+
+    // 첫 화면 placeholder (안내 일러스트 영역)
+    function PlaceholderState() {
+      return (
+        <div className="flex flex-col items-center justify-center gap-4 py-16 text-center">
+          <div className="text-6xl soft-pulse">🖼️</div>
+          <p className="text-lg font-medium text-stone-500">아직 그려진 그림이 없어요</p>
+          <p className="max-w-sm text-sm text-stone-400">
+            위에 원하는 장면을 입력하고 <span className="font-semibold text-rose-400">그리기</span> 버튼을 누르면,<br />
+            따뜻한 빛과 부드러운 붓터치의 르느와르 화풍 그림이 이 액자에 담깁니다.
+          </p>
+        </div>
+      );
+    }
+
+    // ========================================
+    // 🧩 레이아웃 컴포넌트
+    // ========================================
+    function Header() {
+      return (
+        <header className="text-center mb-8">
+          <div className="inline-block mb-3 text-4xl">🌸</div>
+          <h1 className="text-3xl sm:text-4xl font-extrabold tracking-tight text-stone-800">
+            르느와르 화풍 이미지 생성기
+          </h1>
+          <p className="mt-3 text-stone-500 text-sm sm:text-base">
+            원하는 장면을 입력하면 르느와르 인상주의 화풍으로 그려드립니다
+          </p>
+        </header>
+      );
+    }
+
+    // ========================================
+    // 🖼️ 이미지 액자 프레임 (결과 표시)
+    // ========================================
+    function FramedImage({ src, prompt }) {
+      return (
+        <figure className="fade-in-up flex flex-col items-center">
+          {/* 액자: 금빛 우드 톤 테두리 + 매트 */}
+          <div className="rounded-2xl bg-gradient-to-br from-amber-700 via-amber-500 to-amber-800 p-2 sm:p-3 shadow-2xl shadow-amber-900/30">
+            <div className="rounded-xl bg-amber-200/40 p-3 sm:p-5 frame-mat">
+              <img
+                src={src}
+                alt={prompt ? `르느와르 화풍 그림: ${prompt}` : "생성된 르느와르 화풍 그림"}
+                className="block w-full max-w-xl rounded-md shadow-inner"
+              />
+            </div>
+          </div>
+
+          {/* 캡션: 직전 프롬프트 */}
+          {prompt && (
+            <figcaption className="mt-4 max-w-xl text-center">
+              <span className="text-xs uppercase tracking-widest text-stone-400">작품 설명</span>
+              <p className="mt-1 italic text-stone-600">“{prompt}”</p>
+            </figcaption>
+          )}
+
+          {/* 다운로드 링크 */}
+          <a
+            href={src}
+            download={`renoir-${Date.now()}.png`}
+            className="mt-5 inline-flex items-center gap-2 rounded-2xl border border-sage-300 bg-white/80 px-5 py-2.5 font-semibold text-stone-700 shadow-sm transition-all hover:bg-white hover:shadow-md active:scale-95"
+            style={{ borderColor: "#c4d7b8" }}
+          >
+            ⬇️ 이미지 저장 (다운로드)
+          </a>
+        </figure>
+      );
+    }
+
+    // ========================================
+    // 📄 메인 페이지 컴포넌트
+    // ========================================
+    function GeneratorPage() {
+      const [prompt, setPrompt] = useState("");
+      const [loading, setLoading] = useState(false);
+      const [error, setError] = useState(null);
+      const [image, setImage] = useState(null);
+      const [usedPrompt, setUsedPrompt] = useState("");
+      const textareaRef = useRef(null);
+
+      const handleChip = useCallback((text) => {
+        setPrompt(text);
+        if (textareaRef.current) textareaRef.current.focus();
+      }, []);
+
+      const handleGenerate = useCallback(async () => {
+        const trimmed = prompt.trim();
+        if (!trimmed) {
+          setError("그릴 장면을 먼저 입력해 주세요. (예: 공원에서 책 읽는 여인)");
+          return;
+        }
+
+        setLoading(true);
+        setError(null);
+        setImage(null);
+
+        try {
+          const res = await fetch(`${API_BASE_URL}/api/generate`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ prompt: trimmed }),
+          });
+
+          // JSON 파싱 (실패하면 상태 텍스트로 폴백)
+          let data = null;
+          try {
+            data = await res.json();
+          } catch (_) {
+            data = null;
+          }
+
+          if (!res.ok) {
+            const msg = (data && data.error) || `서버 오류 (HTTP ${res.status})`;
+            throw new Error(msg);
+          }
+
+          if (!data || !data.image) {
+            throw new Error("서버 응답에 이미지가 없습니다.");
+          }
+
+          setImage(data.image);
+          setUsedPrompt(trimmed);
+        } catch (err) {
+          // 네트워크 자체 실패(서버 미구동 등) 안내
+          const isNetworkErr = err instanceof TypeError;
+          setError(
+            isNetworkErr
+              ? `서버에 연결하지 못했어요. 서버가 실행 중인지 확인해 주세요. (${API_BASE_URL})`
+              : err.message
+          );
+        } finally {
+          setLoading(false);
+        }
+      }, [prompt]);
+
+      // Ctrl/⌘ + Enter 로 생성
+      const handleKeyDown = useCallback(
+        (e) => {
+          if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+            e.preventDefault();
+            if (!loading) handleGenerate();
+          }
+        },
+        [loading, handleGenerate]
+      );
+
+      return (
+        <div className="mx-auto w-full max-w-3xl px-4 py-8 sm:py-12">
+          <Header />
+
+          {/* 입력 카드 */}
+          <Card className="p-5 sm:p-7 mb-8">
+            <label htmlFor="prompt" className="mb-2 block text-sm font-semibold text-stone-700">
+              그리고 싶은 장면
+            </label>
+            <textarea
+              id="prompt"
+              ref={textareaRef}
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+              onKeyDown={handleKeyDown}
+              disabled={loading}
+              rows={4}
+              placeholder="예) 햇살이 비치는 정원에서 차를 마시는 두 여인, 부드러운 빛과 따뜻한 색감"
+              className="w-full resize-none rounded-2xl border border-stone-200 bg-white/80 px-4 py-3 text-stone-700 placeholder-stone-400 shadow-inner transition-all focus:border-rose-300 focus:outline-none focus:ring-4 focus:ring-rose-100 disabled:opacity-60"
+            />
+
+            {/* 예시 칩 */}
+            <div className="mt-3">
+              <p className="mb-2 text-xs font-medium text-stone-400">✨ 예시 프롬프트 (클릭해서 채우기)</p>
+              <div className="flex flex-wrap gap-2">
+                {EXAMPLE_PROMPTS.map((ex) => (
+                  <Chip key={ex} label={ex} onClick={() => handleChip(ex)} disabled={loading} />
+                ))}
+              </div>
+            </div>
+
+            {/* 액션 */}
+            <div className="mt-5 flex items-center justify-between gap-3">
+              <span className="hidden text-xs text-stone-400 sm:inline">
+                Ctrl/⌘ + Enter 로도 그릴 수 있어요
+              </span>
+              <Button onClick={handleGenerate} disabled={loading} className="ml-auto">
+                {loading ? "그리는 중…" : "🎨 그리기"}
+              </Button>
+            </div>
+          </Card>
+
+          {/* 결과 영역 */}
+          <Card className="p-5 sm:p-8">
+            {error && <ErrorBox message={error} />}
+
+            {!error && loading && <LoadingState />}
+
+            {!error && !loading && image && <FramedImage src={image} prompt={usedPrompt} />}
+
+            {!error && !loading && !image && <PlaceholderState />}
+          </Card>
+
+          <footer className="mt-10 text-center text-xs text-stone-400">
+            🖌️ 르느와르 인상주의 화풍은 서버에서 적용됩니다 · 따뜻한 빛의 그림을 즐겨보세요
+          </footer>
+        </div>
+      );
+    }
+
+    // ========================================
+    // 🚀 App
+    // ========================================
+    function App() {
+      return <GeneratorPage />;
+    }
+
+    // ========================================
+    // 렌더링
+    // ========================================
+    ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+  </script>
+</body>
+</html>

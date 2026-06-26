@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>비밀번호 보기 데모 (React + Node 웹서버)</title>
+
+  <!-- ⚠️ 이 PC에서는 CDN 버전을 반드시 고정해야 함.
+       특히 @babel/standalone 을 버전 없이(latest) 불러오면 인라인 text/babel 변환이 깨져
+       빈 화면(흰 화면)이 뜬다. 반드시 7.23.5 로 고정. React/ReactDOM 도 정확히 핀. -->
+  <script src="https://unpkg.com/react@18.2.0/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18.2.0/umd/react-dom.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone@7.23.5/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com/3.4.16"></script>
+
+  <style>
+    /* Tailwind 으로 표현하기 까다로운 부분만 직접 작성 */
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(4px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    .animate-fade-in { animation: fadeIn 0.18s ease-out; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .animate-spin-slow { animation: spin 0.8s linear infinite; }
+  </style>
+</head>
+<body class="bg-slate-100 min-h-screen">
+  <div id="root"></div>
+
+  <script type="text/babel" data-presets="react">
+    // ========================================
+    // React Hooks
+    // ========================================
+    const { useState, useCallback } = React;
+
+    // ========================================
+    // 🎨 Design System Components
+    // ========================================
+
+    // 버튼: variant(primary/secondary/ghost) + size(sm/md)
+    function Button({ variant = "primary", size = "md", className = "", children, ...props }) {
+      const base =
+        "inline-flex items-center justify-center gap-2 font-semibold rounded-xl " +
+        "transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 " +
+        "disabled:opacity-50 disabled:cursor-not-allowed";
+      const variants = {
+        primary: "bg-indigo-600 text-white hover:bg-indigo-700 focus:ring-indigo-500",
+        secondary: "bg-white text-slate-700 border border-slate-300 hover:bg-slate-50 focus:ring-slate-400",
+        ghost: "bg-transparent text-slate-600 hover:bg-slate-100 focus:ring-slate-300",
+      };
+      const sizes = {
+        sm: "px-3 py-1.5 text-sm",
+        md: "px-5 py-2.5 text-base",
+      };
+      return (
+        <button className={`${base} ${variants[variant]} ${sizes[size]} ${className}`} {...props}>
+          {children}
+        </button>
+      );
+    }
+
+    // 카드: 그림자 + 둥근 모서리 래퍼
+    function Card({ className = "", children }) {
+      return (
+        <div className={`bg-white rounded-2xl shadow-xl shadow-slate-200/60 ${className}`}>
+          {children}
+        </div>
+      );
+    }
+
+    // 작은 아이콘들 (인라인 SVG — 외부 의존성 없이)
+    const EyeIcon = () => (
+      <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" viewBox="0 0 24 24" fill="none"
+           stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z" />
+        <circle cx="12" cy="12" r="3" />
+      </svg>
+    );
+    const EyeOffIcon = () => (
+      <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" viewBox="0 0 24 24" fill="none"
+           stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c6.5 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68" />
+        <path d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3.5 7 10 7a9.74 9.74 0 0 0 5.39-1.61" />
+        <line x1="2" y1="2" x2="22" y2="22" />
+      </svg>
+    );
+    const CopyIcon = () => (
+      <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" viewBox="0 0 24 24" fill="none"
+           stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+      </svg>
+    );
+    const CheckIcon = () => (
+      <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" viewBox="0 0 24 24" fill="none"
+           stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <polyline points="20 6 9 17 4 12" />
+      </svg>
+    );
+    const LockIcon = () => (
+      <svg xmlns="http://www.w3.org/2000/svg" className="w-6 h-6" viewBox="0 0 24 24" fill="none"
+           stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+        <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+      </svg>
+    );
+    const Spinner = () => (
+      <svg className="w-5 h-5 animate-spin-slow" viewBox="0 0 24 24" fill="none">
+        <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="3" className="opacity-25" />
+        <path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
+      </svg>
+    );
+
+    // ========================================
+    // 📄 Page Component
+    // ========================================
+    function PasswordVault() {
+      const [revealed, setRevealed] = useState(false); // 보기/숨기기 토글
+      const [password, setPassword] = useState(null);  // 서버에서 받아온 비밀번호 (최초엔 null)
+      const [loading, setLoading] = useState(false);   // 서버 요청 중
+      const [error, setError] = useState("");          // 요청 실패 메시지
+      const [copied, setCopied] = useState(false);     // 복사 완료 표시
+
+      // 서버의 /api/password 를 호출해 pass.txt 내용을 가져온다
+      const fetchPassword = useCallback(async () => {
+        setLoading(true);
+        setError("");
+        try {
+          const res = await fetch("/api/password");
+          if (!res.ok) throw new Error("HTTP " + res.status);
+          const data = await res.json();
+          if (typeof data.password !== "string") throw new Error("응답 형식 오류");
+          setPassword(data.password);
+          return data.password;
+        } catch (e) {
+          setError("비밀번호를 불러오지 못했습니다. 서버(node server.js)가 켜져 있는지 확인하세요.");
+          return null;
+        } finally {
+          setLoading(false);
+        }
+      }, []);
+
+      // 메인 버튼: 보기 ↔ 숨기기. 처음 보기 누를 때만 서버에서 가져온다.
+      const handleToggle = useCallback(async () => {
+        if (revealed) { setRevealed(false); return; }
+        if (password === null) {
+          const p = await fetchPassword();
+          if (p === null) return; // 실패하면 노출하지 않음
+        }
+        setRevealed(true);
+      }, [revealed, password, fetchPassword]);
+
+      // 클립보드 복사
+      const handleCopy = useCallback(async () => {
+        if (password === null) return;
+        try {
+          await navigator.clipboard.writeText(password);
+        } catch (e) {
+          // clipboard API 가 막힌 환경(예: 권한)을 위한 폴백
+          const ta = document.createElement("textarea");
+          ta.value = password;
+          ta.style.position = "fixed";
+          ta.style.opacity = "0";
+          document.body.appendChild(ta);
+          ta.select();
+          try { document.execCommand("copy"); } catch (_) {}
+          document.body.removeChild(ta);
+        }
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1500);
+      }, [password]);
+
+      const showValue = revealed && password !== null;
+
+      return (
+        <div className="max-w-md mx-auto px-4 py-10 sm:py-16">
+          {/* 헤더 */}
+          <div className="flex items-center gap-3 mb-6">
+            <div className="flex items-center justify-center w-11 h-11 rounded-2xl bg-indigo-600 text-white shadow-lg shadow-indigo-300/50">
+              <LockIcon />
+            </div>
+            <div>
+              <h1 className="text-2xl font-bold text-slate-800">비밀번호 보기</h1>
+              <p className="text-sm text-slate-500">버튼을 누르면 서버가 <code className="font-mono text-xs">pass.txt</code> 를 읽어 보여줍니다</p>
+            </div>
+          </div>
+
+          <Card className="p-6 sm:p-7">
+            {/* 비밀번호 표시 영역 */}
+            <div className="mb-2 text-sm font-medium text-slate-500">저장된 비밀번호</div>
+            <div className="flex items-stretch gap-2">
+              <div
+                className="flex-1 min-w-0 flex items-center px-4 py-3 rounded-xl bg-slate-50 border border-slate-200 font-mono text-lg text-slate-800 select-all break-all min-h-[3.25rem]"
+                aria-live="polite"
+                aria-label={showValue ? "비밀번호 표시됨" : "비밀번호 숨김"}
+              >
+                {loading ? (
+                  <span className="flex items-center gap-2 text-slate-400 text-base">
+                    <Spinner /> 서버에서 불러오는 중…
+                  </span>
+                ) : showValue ? (
+                  <span className="animate-fade-in">{password}</span>
+                ) : (
+                  <span className="tracking-widest text-slate-400">{"•".repeat(10)}</span>
+                )}
+              </div>
+
+              {/* 복사 버튼 — 보일 때만 활성화 */}
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={handleCopy}
+                disabled={!showValue}
+                className="shrink-0 !px-3"
+                aria-label="비밀번호 복사"
+                title={showValue ? "클립보드에 복사" : "먼저 비밀번호를 보세요"}
+              >
+                {copied ? <CheckIcon /> : <CopyIcon />}
+              </Button>
+            </div>
+
+            {/* 상태 메시지 자리 (레이아웃 흔들림 방지용 고정 높이) */}
+            <div className="h-5 mt-2">
+              {copied && (
+                <p className="text-sm text-emerald-600 animate-fade-in flex items-center gap-1">
+                  <CheckIcon /> 클립보드에 복사했습니다
+                </p>
+              )}
+              {error && (
+                <p className="text-sm text-rose-600 animate-fade-in">{error}</p>
+              )}
+            </div>
+
+            {/* 메인 토글 버튼 */}
+            <Button
+              variant="primary"
+              onClick={handleToggle}
+              disabled={loading}
+              className="w-full mt-2"
+            >
+              {loading ? <Spinner /> : (showValue ? <EyeOffIcon /> : <EyeIcon />)}
+              {loading ? "불러오는 중…" : (showValue ? "비밀번호 숨기기" : "비밀번호 보기")}
+            </Button>
+          </Card>
+
+          {/* 교육용 정직성: 보안 안내 */}
+          <div className="mt-5 flex gap-3 p-4 rounded-xl bg-amber-50 border border-amber-200 text-amber-800">
+            <span className="text-lg leading-none mt-0.5" aria-hidden="true">⚠️</span>
+            <p className="text-sm leading-relaxed">
+              <strong className="font-semibold">학습용 데모입니다.</strong> 서버가
+              <code className="mx-1 px-1 py-0.5 rounded bg-amber-100 font-mono text-xs">pass.txt</code>
+              의 <strong>평문</strong> 비밀번호를 그대로 HTTP 로 내려보내 화면에 노출합니다. 이렇게
+              평문 파일을 API 로 공개하는 방식은 안전하지 않으므로, 이 서버를 외부에 노출하지 말고
+              진짜 비밀번호 대신 가짜 값으로 연습하세요. 실제 서비스에서는 해시·암호화와 접근 제어가 필요합니다.
+            </p>
+          </div>
+
+          <p className="mt-6 text-center text-xs text-slate-400">
+            week_3 · webserver-03 · React + Node(http) 웹서버 데모
+          </p>
+        </div>
+      );
+    }
+
+    // ========================================
+    // 🚀 App
+    // ========================================
+    function App() {
+      return <PasswordVault />;
+    }
+
+    // ========================================
+    // Rendering
+    // ========================================
+    ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+  </script>
+</body>
+</html>

@@ -10,3 +10,10 @@
 # OS / 정크 파일
 .DS_Store
 __MACOSX/
+
+# Playwright 테스트 부산물
+.playwright-mcp/
+
+# API 키 환경파일 (절대 커밋 금지)
+.env
+**/.env

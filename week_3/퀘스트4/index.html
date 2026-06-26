@@ -1,0 +1,420 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AI 별명 생성기 ✨</title>
+
+  <!-- Tailwind CSS (CDN) -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- React / ReactDOM UMD 18.2.0 (버전 고정) -->
+  <script src="https://unpkg.com/react@18.2.0/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18.2.0/umd/react-dom.production.min.js" crossorigin></script>
+
+  <!-- ⚠️ Babel standalone 버전 반드시 7.23.5 고정 (미고정/최신이면 빈 화면) -->
+  <script src="https://unpkg.com/@babel/standalone@7.23.5/babel.min.js"></script>
+
+  <style>
+    /* Tailwind로 표현하기 어려운 부분만 커스텀 */
+    @keyframes floaty {
+      0%, 100% { transform: translateY(0); }
+      50% { transform: translateY(-8px); }
+    }
+    .floaty { animation: floaty 3s ease-in-out infinite; }
+
+    @keyframes pop {
+      0% { transform: scale(0.92); opacity: 0; }
+      100% { transform: scale(1); opacity: 1; }
+    }
+    .pop { animation: pop 0.28s ease-out both; }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+    .spin { animation: spin 0.8s linear infinite; }
+  </style>
+</head>
+<body class="min-h-screen bg-gradient-to-br from-rose-100 via-violet-100 to-sky-100">
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useCallback } = React;
+
+    // ========================================
+    // 🌐 서버 API 설정
+    // ========================================
+    const API_BASE_URL =
+      (window.location.protocol === "http:" || window.location.protocol === "https:")
+        ? window.location.origin
+        : "http://localhost:3000";
+
+    // ========================================
+    // 🎨 Design System Components (순수 표현용)
+    // ========================================
+    function Button({ variant = "primary", size = "md", className = "", disabled, children, ...rest }) {
+      const base =
+        "inline-flex items-center justify-center gap-2 font-bold rounded-2xl transition-all duration-150 focus:outline-none focus:ring-4 disabled:opacity-50 disabled:cursor-not-allowed select-none";
+      const variants = {
+        primary:
+          "text-white bg-gradient-to-r from-fuchsia-500 to-violet-500 hover:from-fuchsia-600 hover:to-violet-600 shadow-lg shadow-fuchsia-300/50 focus:ring-fuchsia-200 active:scale-95",
+        secondary:
+          "text-violet-700 bg-white/80 hover:bg-white border-2 border-violet-200 focus:ring-violet-100 active:scale-95",
+        ghost:
+          "text-violet-600 bg-transparent hover:bg-white/60 focus:ring-violet-100 active:scale-95",
+      };
+      const sizes = {
+        sm: "px-3 py-1.5 text-sm",
+        md: "px-5 py-2.5 text-base",
+        lg: "px-7 py-3.5 text-lg",
+      };
+      return (
+        <button
+          className={`${base} ${variants[variant]} ${sizes[size]} ${className}`}
+          disabled={disabled}
+          {...rest}
+        >
+          {children}
+        </button>
+      );
+    }
+
+    function Input({ label, value, onChange, placeholder, required, hint, ...rest }) {
+      return (
+        <label className="block">
+          <span className="block mb-1.5 text-sm font-bold text-violet-800">
+            {label}
+            {required && <span className="text-rose-500"> *</span>}
+          </span>
+          <input
+            value={value}
+            onChange={onChange}
+            placeholder={placeholder}
+            className="w-full px-4 py-3 rounded-2xl bg-white/90 border-2 border-violet-200 text-violet-900 placeholder-violet-300 focus:border-fuchsia-400 focus:ring-4 focus:ring-fuchsia-100 focus:outline-none transition"
+            {...rest}
+          />
+          {hint && <span className="block mt-1 text-xs text-violet-400">{hint}</span>}
+        </label>
+      );
+    }
+
+    function Card({ className = "", children, ...rest }) {
+      return (
+        <div
+          className={`rounded-3xl bg-white/80 backdrop-blur shadow-xl shadow-violet-200/40 ${className}`}
+          {...rest}
+        >
+          {children}
+        </div>
+      );
+    }
+
+    function ErrorBox({ message }) {
+      if (!message) return null;
+      return (
+        <div className="pop rounded-2xl border-2 border-rose-300 bg-rose-50 px-4 py-3 flex items-start gap-2 text-rose-700">
+          <span className="text-lg leading-none mt-0.5">🚨</span>
+          <p className="text-sm font-medium">{message}</p>
+        </div>
+      );
+    }
+
+    function Spinner() {
+      return (
+        <span
+          className="inline-block w-5 h-5 rounded-full border-[3px] border-white/40 border-t-white spin"
+          aria-hidden="true"
+        />
+      );
+    }
+
+    // ========================================
+    // 🧩 별명 결과 카드
+    // ========================================
+    function NicknameCard({ item, index, selected, onSelect }) {
+      const [copied, setCopied] = useState(false);
+
+      const handleCopy = useCallback(
+        async (e) => {
+          e.stopPropagation();
+          try {
+            await navigator.clipboard.writeText(item.nickname);
+          } catch (_) {
+            // clipboard API 실패 시 폴백
+            const ta = document.createElement("textarea");
+            ta.value = item.nickname;
+            ta.style.position = "fixed";
+            ta.style.opacity = "0";
+            document.body.appendChild(ta);
+            ta.select();
+            try { document.execCommand("copy"); } catch (_) {}
+            document.body.removeChild(ta);
+          }
+          setCopied(true);
+          setTimeout(() => setCopied(false), 1200);
+        },
+        [item.nickname]
+      );
+
+      const emojis = ["🌟", "🎈", "🍭", "🚀", "🦄", "🌈", "🐣", "🔥", "💎", "🎨"];
+      const emoji = emojis[index % emojis.length];
+
+      return (
+        <div
+          role="button"
+          tabIndex={0}
+          onClick={() => onSelect(item)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              onSelect(item);
+            }
+          }}
+          className={`pop cursor-pointer rounded-3xl p-5 border-2 transition-all duration-150 active:scale-[0.98] ${
+            selected
+              ? "bg-gradient-to-br from-fuchsia-100 to-violet-100 border-fuchsia-400 ring-4 ring-fuchsia-200 shadow-lg"
+              : "bg-white/90 border-violet-100 hover:border-fuchsia-300 hover:shadow-md"
+          }`}
+        >
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <span className="text-2xl floaty">{emoji}</span>
+                <h3 className="text-xl sm:text-2xl font-extrabold text-violet-900 break-keep">
+                  {item.nickname}
+                </h3>
+                {selected && (
+                  <span className="text-xs font-bold text-fuchsia-600 bg-fuchsia-100 rounded-full px-2 py-0.5">
+                    선택됨
+                  </span>
+                )}
+              </div>
+              {item.reason && (
+                <p className="mt-1.5 text-sm text-violet-500 leading-relaxed break-keep">
+                  {item.reason}
+                </p>
+              )}
+            </div>
+
+            <Button
+              variant={copied ? "primary" : "secondary"}
+              size="sm"
+              onClick={handleCopy}
+              className="shrink-0"
+              aria-label={`${item.nickname} 복사`}
+            >
+              {copied ? "복사됨! ✅" : "복사 📋"}
+            </Button>
+          </div>
+        </div>
+      );
+    }
+
+    // ========================================
+    // 📄 메인 페이지
+    // ========================================
+    function NicknameGenerator() {
+      const [name, setName] = useState("");
+      const [personality, setPersonality] = useState("");
+      const [hobbies, setHobbies] = useState("");
+
+      const [loading, setLoading] = useState(false);
+      const [error, setError] = useState("");
+      const [nicknames, setNicknames] = useState([]);
+      const [selected, setSelected] = useState(null);
+
+      const canSubmit = name.trim().length > 0 && !loading;
+
+      const handleGenerate = useCallback(async () => {
+        if (!name.trim()) {
+          setError("이름을 입력해 주세요.");
+          return;
+        }
+        setLoading(true);
+        setError("");
+        setSelected(null);
+
+        try {
+          const res = await fetch(`${API_BASE_URL}/api/nickname`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              name: name.trim(),
+              personality: personality.trim(),
+              hobbies: hobbies.trim(),
+            }),
+          });
+
+          let data = null;
+          try {
+            data = await res.json();
+          } catch (_) {
+            data = null;
+          }
+
+          if (!res.ok) {
+            setError((data && data.error) || `요청에 실패했어요 (HTTP ${res.status}).`);
+            setNicknames([]);
+            return;
+          }
+
+          const list = (data && Array.isArray(data.nicknames)) ? data.nicknames : [];
+          if (list.length === 0) {
+            setError("별명을 받지 못했어요. 잠시 후 다시 시도해 주세요.");
+            setNicknames([]);
+            return;
+          }
+          setNicknames(list);
+        } catch (err) {
+          setError(
+            "서버에 연결하지 못했어요. 서버(server.js)가 실행 중인지 확인해 주세요. 😢"
+          );
+          setNicknames([]);
+        } finally {
+          setLoading(false);
+        }
+      }, [name, personality, hobbies]);
+
+      const handleKeyDown = (e) => {
+        if (e.key === "Enter" && canSubmit) {
+          handleGenerate();
+        }
+      };
+
+      return (
+        <div className="min-h-screen px-4 py-8 sm:py-12 flex flex-col items-center">
+          <div className="w-full max-w-2xl">
+            {/* 헤더 */}
+            <header className="text-center mb-8">
+              <div className="text-5xl sm:text-6xl floaty mb-2">✨🎀</div>
+              <h1 className="text-3xl sm:text-4xl font-extrabold bg-gradient-to-r from-fuchsia-600 to-violet-600 bg-clip-text text-transparent">
+                AI 별명 생성기
+              </h1>
+              <p className="mt-2 text-violet-500 font-medium">
+                이름 · 성격 · 취미를 알려주면 AI가 찰떡 별명을 지어줘요!
+              </p>
+            </header>
+
+            {/* 선택된 별명 (상단 배너) */}
+            {selected && (
+              <Card className="pop mb-6 p-4 bg-gradient-to-r from-fuchsia-500 to-violet-500 !shadow-fuchsia-300/50">
+                <p className="text-white/90 text-sm font-medium">선택한 별명 💖</p>
+                <p className="text-white text-2xl font-extrabold break-keep">
+                  {selected.nickname}
+                </p>
+              </Card>
+            )}
+
+            {/* 입력 폼 */}
+            <Card className="p-6 sm:p-8" onKeyDown={handleKeyDown}>
+              <div className="space-y-4">
+                <Input
+                  label="이름"
+                  required
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="예: 김수경"
+                  hint="별명을 지어줄 사람의 이름이에요."
+                />
+                <Input
+                  label="성격"
+                  value={personality}
+                  onChange={(e) => setPersonality(e.target.value)}
+                  placeholder="예: 활발함, 내향적, 장난기 많음"
+                />
+                <Input
+                  label="취미"
+                  value={hobbies}
+                  onChange={(e) => setHobbies(e.target.value)}
+                  placeholder="예: 축구, 독서, 게임"
+                />
+
+                <Button
+                  size="lg"
+                  className="w-full mt-2"
+                  onClick={handleGenerate}
+                  disabled={!canSubmit}
+                >
+                  {loading ? (
+                    <>
+                      <Spinner />
+                      AI가 별명을 짓는 중…
+                    </>
+                  ) : (
+                    <>별명 만들기 🪄</>
+                  )}
+                </Button>
+
+                {!name.trim() && !loading && (
+                  <p className="text-center text-xs text-violet-400">
+                    이름을 입력하면 버튼이 활성화돼요.
+                  </p>
+                )}
+              </div>
+            </Card>
+
+            {/* 에러 */}
+            {error && (
+              <div className="mt-6">
+                <ErrorBox message={error} />
+              </div>
+            )}
+
+            {/* 로딩 자리표시 */}
+            {loading && nicknames.length === 0 && (
+              <div className="mt-8 text-center text-violet-500 font-medium">
+                <div className="text-4xl floaty mb-2">🤔💭</div>
+                AI가 멋진 별명을 고민하고 있어요…
+              </div>
+            )}
+
+            {/* 결과 */}
+            {nicknames.length > 0 && (
+              <section className="mt-8">
+                <div className="flex items-center justify-between mb-3 px-1">
+                  <h2 className="text-lg font-extrabold text-violet-800">
+                    별명 후보 {nicknames.length}개 🎉
+                  </h2>
+                  <span className="text-xs text-violet-400">카드를 누르면 선택돼요</span>
+                </div>
+
+                <div className="grid grid-cols-1 gap-3">
+                  {nicknames.map((item, i) => (
+                    <NicknameCard
+                      key={`${item.nickname}-${i}`}
+                      item={item}
+                      index={i}
+                      selected={selected && selected.nickname === item.nickname}
+                      onSelect={setSelected}
+                    />
+                  ))}
+                </div>
+
+                {/* 선택된 별명 (하단) */}
+                {selected && (
+                  <div className="mt-6 text-center text-violet-600 font-bold">
+                    선택한 별명: <span className="text-fuchsia-600">{selected.nickname}</span>
+                  </div>
+                )}
+              </section>
+            )}
+
+            <footer className="mt-12 text-center text-xs text-violet-300">
+              made with 💜 · AI 별명 생성기
+            </footer>
+          </div>
+        </div>
+      );
+    }
+
+    // ========================================
+    // 🚀 App & Render
+    // ========================================
+    function App() {
+      return <NicknameGenerator />;
+    }
+
+    ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+  </script>
+</body>
+</html>

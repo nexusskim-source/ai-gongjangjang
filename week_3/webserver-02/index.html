@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Node Server 예제 (React 단일 파일)</title>
+  <!-- React + Babel + Tailwind 를 CDN 으로 불러옵니다 (빌드 도구 불필요) -->
+  <script src="https://unpkg.com/react@18.2.0/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18.2.0/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.23.6/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-50">
+  <div id="root"></div>
+
+  <script type="text/babel" data-presets="react">
+    const { useState } = React;
+
+    function App() {
+      const [result, setResult] = useState(null);
+      const [loading, setLoading] = useState(false);
+      const [error, setError] = useState(null);
+
+      const handleFetch = async () => {
+        setLoading(true);
+        setError(null);
+        try {
+          const response = await fetch('/api/hello');
+          const data = await response.json();
+          setResult(data);
+        } catch (e) {
+          setError(e.message);
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      return (
+        <div className="max-w-xl mx-auto mt-16 p-6">
+          <h1 className="text-2xl font-bold mb-6">Node.js 서버 응답 예제 (React 단일 파일)</h1>
+
+          <button
+            onClick={handleFetch}
+            disabled={loading}
+            className="px-5 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+          >
+            {loading ? '요청 중...' : '서버에 요청 보내기'}
+          </button>
+
+          <div className="mt-5 p-4 bg-gray-100 rounded-lg min-h-[60px]">
+            {error && <span className="text-red-600">오류 발생: {error}</span>}
+            {!error && !result && <span className="text-gray-500">여기에 서버 응답이 표시됩니다.</span>}
+            {!error && result && (
+              <div>
+                <p><strong>메시지:</strong> {result.message}</p>
+                <p><strong>시간:</strong> {result.time}</p>
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>

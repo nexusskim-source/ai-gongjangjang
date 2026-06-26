@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>유시민에게 묻다 — 나만의 사회학자 챗봇</title>
+
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- React / ReactDOM (UMD) -->
+  <script crossorigin src="https://unpkg.com/react@18.2.0/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18.2.0/umd/react-dom.production.min.js"></script>
+
+  <!-- ⚠️ Babel standalone 버전 반드시 고정(7.23.5). 미고정/최신 사용 시 빈 화면 발생. -->
+  <script src="https://unpkg.com/@babel/standalone@7.23.5/babel.min.js"></script>
+
+  <style>
+    /* 로딩 점 애니메이션 (Tailwind만으로는 부족) */
+    @keyframes typingBounce {
+      0%, 80%, 100% { transform: translateY(0); opacity: 0.35; }
+      40% { transform: translateY(-4px); opacity: 1; }
+    }
+    .typing-dot { animation: typingBounce 1.2s infinite ease-in-out; }
+    .typing-dot:nth-child(2) { animation-delay: 0.2s; }
+    .typing-dot:nth-child(3) { animation-delay: 0.4s; }
+
+    /* 스크롤바 살짝 다듬기 */
+    .chat-scroll::-webkit-scrollbar { width: 8px; }
+    .chat-scroll::-webkit-scrollbar-thumb { background: rgba(30,41,59,0.18); border-radius: 9999px; }
+    .chat-scroll::-webkit-scrollbar-track { background: transparent; }
+  </style>
+</head>
+<body class="bg-stone-100">
+  <div id="root"></div>
+
+  <script type="text/babel">
+    // ========================================
+    // React Hooks
+    // ========================================
+    const { useState, useRef, useEffect, useCallback } = React;
+
+    // 서버 API 주소
+    //  - http(s)로 열렸으면(= 서버 통해 접속) 같은 출처를 사용
+    //  - file:// 로 직접 열렸으면 로컬 서버(localhost:3000)를 호출 (서버가 켜져 있어야 함)
+    const API_BASE_URL =
+      (window.location.protocol === "http:" || window.location.protocol === "https:")
+        ? window.location.origin
+        : "http://localhost:3000";
+
+    // 대화 저장용 localStorage 키 (브라우저에 보관 → 새로고침해도 유지)
+    const STORAGE_KEY = "yusimin-chat-history";
+
+    // ========================================
+    // 🎨 Design System Components
+    // ========================================
+
+    // 아바타
+    function Avatar({ role }) {
+      const isUser = role === "user";
+      return (
+        <div
+          className={
+            "flex-shrink-0 w-9 h-9 rounded-full flex items-center justify-center text-sm font-semibold select-none " +
+            (isUser
+              ? "bg-slate-700 text-stone-50"
+              : "bg-amber-200 text-amber-900")
+          }
+          aria-hidden="true"
+        >
+          {isUser ? "나" : "柳"}
+        </div>
+      );
+    }
+
+    // 메시지 말풍선
+    function MessageBubble({ message }) {
+      const isUser = message.role === "user";
+      const isError = message.isError;
+
+      let bubbleClass;
+      if (isUser) {
+        bubbleClass = "bg-slate-700 text-stone-50 rounded-br-md";
+      } else if (isError) {
+        bubbleClass = "bg-red-50 text-red-700 border border-red-200 rounded-bl-md";
+      } else {
+        bubbleClass = "bg-white text-slate-800 border border-stone-200 rounded-bl-md";
+      }
+
+      return (
+        <div className={"flex gap-2.5 items-end " + (isUser ? "flex-row-reverse" : "flex-row")}>
+          <Avatar role={message.role} />
+          <div
+            className={
+              "max-w-[78%] sm:max-w-[70%] px-4 py-2.5 rounded-2xl shadow-sm leading-relaxed whitespace-pre-wrap break-words text-[15px] " +
+              bubbleClass
+            }
+          >
+            {message.content}
+          </div>
+        </div>
+      );
+    }
+
+    // 로딩 인디케이터 말풍선
+    function TypingIndicator() {
+      return (
+        <div className="flex gap-2.5 items-end flex-row">
+          <Avatar role="assistant" />
+          <div className="bg-white border border-stone-200 px-4 py-3 rounded-2xl rounded-bl-md shadow-sm flex items-center gap-2">
+            <span className="text-sm text-slate-500">유시민이 생각 중</span>
+            <span className="flex gap-1">
+              <span className="typing-dot w-1.5 h-1.5 bg-amber-700 rounded-full inline-block"></span>
+              <span className="typing-dot w-1.5 h-1.5 bg-amber-700 rounded-full inline-block"></span>
+              <span className="typing-dot w-1.5 h-1.5 bg-amber-700 rounded-full inline-block"></span>
+            </span>
+          </div>
+        </div>
+      );
+    }
+
+    // ========================================
+    // 🧩 Layout Components
+    // ========================================
+
+    function Header({ onClear }) {
+      return (
+        <header className="flex-shrink-0 bg-slate-800 text-stone-50 shadow-md">
+          <div className="max-w-3xl mx-auto px-4 sm:px-6 py-4 flex items-center gap-3">
+            <div className="w-11 h-11 rounded-full bg-amber-200 text-amber-900 flex items-center justify-center text-lg font-bold flex-shrink-0">
+              柳
+            </div>
+            <div className="min-w-0 flex-1">
+              <h1 className="text-lg sm:text-xl font-bold tracking-tight truncate">
+                유시민에게 묻다
+              </h1>
+              <p className="text-xs sm:text-sm text-stone-300 truncate">
+                나만의 사회학자 챗봇 — 세상사를 사회학자의 눈으로 함께 읽습니다
+              </p>
+            </div>
+            <button
+              onClick={onClear}
+              aria-label="대화 비우기"
+              title="대화 내용을 모두 지웁니다"
+              className="flex-shrink-0 px-3 py-1.5 rounded-lg text-xs sm:text-sm font-medium text-stone-200 border border-stone-500 hover:bg-slate-700 active:scale-95 transition"
+            >
+              대화 비우기
+            </button>
+          </div>
+        </header>
+      );
+    }
+
+    // ========================================
+    // 📄 Chat Page (메인 로직)
+    // ========================================
+
+    // 화면 표시용 환영 메시지 (messages 상태에는 포함하지 않음)
+    const WELCOME_MESSAGE = {
+      role: "assistant",
+      content:
+        "안녕하세요. 세상사 무엇이든 사회학자의 눈으로 함께 들여다봅시다. 무엇이 궁금하세요?",
+    };
+
+    function ChatApp() {
+      // 실제 대화 (user/assistant 턴) — 서버로 전송되는 배열
+      // 최초 로드 시 localStorage에 저장된 이전 대화를 복원
+      const [messages, setMessages] = useState(() => {
+        try {
+          const saved = localStorage.getItem(STORAGE_KEY);
+          const parsed = saved ? JSON.parse(saved) : [];
+          return Array.isArray(parsed) ? parsed : [];
+        } catch (e) {
+          return [];
+        }
+      });
+      const [input, setInput] = useState("");
+      const [loading, setLoading] = useState(false);
+
+      const scrollRef = useRef(null);
+      const inputRef = useRef(null);
+
+      // 화면에 그릴 목록 = 환영 메시지 + 실제 대화
+      const displayMessages = [WELCOME_MESSAGE, ...messages];
+
+      // 자동 스크롤 (맨 아래로)
+      useEffect(() => {
+        const el = scrollRef.current;
+        if (el) {
+          el.scrollTop = el.scrollHeight;
+        }
+      }, [messages, loading]);
+
+      // 로딩 끝나면 입력창 포커스
+      useEffect(() => {
+        if (!loading && inputRef.current) {
+          inputRef.current.focus();
+        }
+      }, [loading]);
+
+      // 대화가 바뀔 때마다 localStorage에 저장 (새로고침해도 유지)
+      useEffect(() => {
+        try {
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(messages));
+        } catch (e) {
+          /* 저장 실패는 조용히 무시 */
+        }
+      }, [messages]);
+
+      // 대화 비우기 (저장된 내용까지 삭제)
+      const clearChat = useCallback(() => {
+        if (messages.length > 0 && !window.confirm("대화 내용을 모두 지울까요?")) {
+          return;
+        }
+        setMessages([]);
+        try {
+          localStorage.removeItem(STORAGE_KEY);
+        } catch (e) {
+          /* ignore */
+        }
+      }, [messages.length]);
+
+      const sendMessage = useCallback(async () => {
+        const text = input.trim();
+        if (!text || loading) return;
+
+        const userMsg = { role: "user", content: text };
+        const nextMessages = [...messages, userMsg];
+
+        setMessages(nextMessages);
+        setInput("");
+        setLoading(true);
+
+        // 서버로 보낼 페이로드: user/assistant 턴만 (에러 말풍선 제외)
+        const payload = nextMessages
+          .filter((m) => !m.isError)
+          .map((m) => ({ role: m.role, content: m.content }));
+
+        try {
+          const res = await fetch(API_BASE_URL + "/api/chat", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ messages: payload }),
+          });
+
+          let data = null;
+          try {
+            data = await res.json();
+          } catch (e) {
+            data = null;
+          }
+
+          if (res.ok && data && typeof data.reply === "string") {
+            setMessages((prev) => [
+              ...prev,
+              { role: "assistant", content: data.reply },
+            ]);
+          } else {
+            const errText =
+              (data && data.error) ||
+              "답변을 가져오지 못했어요. 잠시 후 다시 시도해 주세요.";
+            setMessages((prev) => [
+              ...prev,
+              { role: "assistant", content: errText, isError: true },
+            ]);
+          }
+        } catch (err) {
+          setMessages((prev) => [
+            ...prev,
+            {
+              role: "assistant",
+              content:
+                "답변을 가져오지 못했어요. 네트워크 또는 서버 상태를 확인해 주세요.",
+              isError: true,
+            },
+          ]);
+        } finally {
+          setLoading(false);
+        }
+      }, [input, loading, messages]);
+
+      // Enter 전송 / Shift+Enter 줄바꿈
+      const handleKeyDown = (e) => {
+        if (e.key === "Enter" && !e.shiftKey) {
+          e.preventDefault();
+          sendMessage();
+        }
+      };
+
+      return (
+        <div className="h-screen flex flex-col bg-stone-100">
+          <Header onClear={clearChat} />
+
+          {/* 메시지 목록 */}
+          <main
+            ref={scrollRef}
+            className="chat-scroll flex-1 overflow-y-auto"
+          >
+            <div className="max-w-3xl mx-auto px-4 sm:px-6 py-6 flex flex-col gap-4">
+              {displayMessages.map((m, i) => (
+                <MessageBubble key={i} message={m} />
+              ))}
+              {loading && <TypingIndicator />}
+            </div>
+          </main>
+
+          {/* 입력 영역 */}
+          <footer className="flex-shrink-0 border-t border-stone-200 bg-stone-50">
+            <div className="max-w-3xl mx-auto px-4 sm:px-6 py-3">
+              <div className="flex items-end gap-2 bg-white border border-stone-300 rounded-2xl shadow-sm px-3 py-2 focus-within:border-slate-400 focus-within:ring-2 focus-within:ring-slate-200 transition">
+                <textarea
+                  ref={inputRef}
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  disabled={loading}
+                  rows={1}
+                  placeholder="궁금한 것을 물어보세요…  (Enter 전송 · Shift+Enter 줄바꿈)"
+                  aria-label="메시지 입력"
+                  className="flex-1 resize-none max-h-40 bg-transparent outline-none text-[15px] text-slate-800 placeholder-slate-400 leading-relaxed py-1 disabled:opacity-60"
+                  style={{ minHeight: "1.5rem" }}
+                />
+                <button
+                  onClick={sendMessage}
+                  disabled={loading || !input.trim()}
+                  aria-label="전송"
+                  className="flex-shrink-0 mb-0.5 px-4 py-2 rounded-xl font-semibold text-sm text-stone-50 bg-slate-700 hover:bg-slate-800 active:scale-95 transition disabled:opacity-40 disabled:cursor-not-allowed disabled:active:scale-100"
+                >
+                  전송
+                </button>
+              </div>
+              <p className="text-[11px] text-slate-400 text-center mt-2">
+                AI가 생성한 답변이며 실제 인물의 견해와 다를 수 있습니다.
+              </p>
+            </div>
+          </footer>
+        </div>
+      );
+    }
+
+    // ========================================
+    // 🚀 Render
+    // ========================================
+    ReactDOM.createRoot(document.getElementById("root")).render(<ChatApp />);
+  </script>
+</body>
+</html>
