@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>김수경은 어떤 사람? — About Me Q&A</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- ⚠️ Babel은 반드시 7.23.5로 고정. 미고정/최신(8.x) 사용 시 인라인 text/babel이 깨져 빈 화면이 됨 -->
+  <script src="https://unpkg.com/react@18.2.0/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18.2.0/umd/react-dom.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone@7.23.5/babel.min.js"></script>
+  <style>
+    /* Tailwind로 표현하기 어려운 부분만 보강 */
+    @keyframes fadeInUp {
+      from { opacity: 0; transform: translateY(8px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .animate-fade-in-up { animation: fadeInUp 0.35s ease-out both; }
+    @keyframes dotBlink {
+      0%, 80%, 100% { opacity: 0.2; }
+      40% { opacity: 1; }
+    }
+    .dot { animation: dotBlink 1.2s infinite both; }
+    .dot:nth-child(2) { animation-delay: 0.2s; }
+    .dot:nth-child(3) { animation-delay: 0.4s; }
+    /* 부드러운 스크롤 영역 */
+    .scroll-area { scrollbar-width: thin; }
+  </style>
+</head>
+<body class="bg-slate-100">
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useRef, useEffect, useCallback } = React;
+
+    // ========================================
+    // ⚙️ 설정 — 서버 주소 (파일 직접 열어도 동작)
+    // ========================================
+    const API_BASE_URL =
+      (window.location.protocol === "http:" || window.location.protocol === "https:")
+        ? window.location.origin
+        : "http://localhost:3000";
+
+    const EXAMPLE_QUESTIONS = [
+      "이 사람 무슨 일 해?",
+      "전공이 뭐야?",
+      "취미가 뭐야?",
+      "어떤 회사 다녔어?",
+      "좋아하는 음료는?",
+    ];
+
+    // ========================================
+    // 🎨 디자인 시스템 컴포넌트
+    // ========================================
+    function Button({ children, variant = "primary", size = "md", disabled, onClick, type = "button", className = "" }) {
+      const base = "inline-flex items-center justify-center font-semibold rounded-xl transition-all focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed";
+      const variants = {
+        primary: "bg-indigo-600 text-white hover:bg-indigo-700 focus:ring-indigo-500 shadow-sm",
+        secondary: "bg-white text-slate-700 border border-slate-300 hover:bg-slate-50 focus:ring-slate-400",
+        ghost: "bg-transparent text-indigo-600 hover:bg-indigo-50 focus:ring-indigo-400",
+      };
+      const sizes = {
+        sm: "px-3 py-1.5 text-sm",
+        md: "px-5 py-2.5 text-sm",
+        lg: "px-6 py-3 text-base",
+      };
+      return (
+        <button
+          type={type}
+          disabled={disabled}
+          onClick={onClick}
+          className={`${base} ${variants[variant]} ${sizes[size]} ${className}`}
+        >
+          {children}
+        </button>
+      );
+    }
+
+    function Chip({ label, onClick, disabled }) {
+      return (
+        <button
+          type="button"
+          disabled={disabled}
+          onClick={onClick}
+          className="px-3.5 py-1.5 text-sm rounded-full border border-slate-300 bg-white text-slate-600 hover:border-indigo-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {label}
+        </button>
+      );
+    }
+
+    function Card({ children, className = "" }) {
+      return (
+        <div className={`bg-white rounded-2xl shadow-sm border border-slate-200 ${className}`}>
+          {children}
+        </div>
+      );
+    }
+
+    // ========================================
+    // 🧩 공통 컴포넌트
+    // ========================================
+    function Header() {
+      return (
+        <header className="text-center mb-8">
+          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-to-br from-indigo-500 to-slate-700 text-white text-2xl font-bold shadow-md mb-4">
+            김
+          </div>
+          <h1 className="text-2xl sm:text-3xl font-bold text-slate-800">
+            김수경에 대해 무엇이든 물어보세요
+          </h1>
+          <p className="mt-2 text-slate-500 text-sm sm:text-base">
+            궁금한 점을 질문하면 AI가 김수경에 대해 답변해 드려요.
+          </p>
+        </header>
+      );
+    }
+
+    function LoadingDots() {
+      return (
+        <span className="inline-flex gap-1 ml-1 align-middle">
+          <span className="dot w-1.5 h-1.5 rounded-full bg-indigo-400"></span>
+          <span className="dot w-1.5 h-1.5 rounded-full bg-indigo-400"></span>
+          <span className="dot w-1.5 h-1.5 rounded-full bg-indigo-400"></span>
+        </span>
+      );
+    }
+
+    // Q&A 한 건 카드
+    function QACard({ question, answer, error, loading }) {
+      return (
+        <Card className="p-5 animate-fade-in-up">
+          {/* 질문 */}
+          <div className="flex items-start gap-3">
+            <span className="flex-shrink-0 w-7 h-7 rounded-full bg-slate-700 text-white text-xs font-bold flex items-center justify-center mt-0.5">Q</span>
+            <p className="text-slate-800 font-medium leading-relaxed pt-0.5">{question}</p>
+          </div>
+
+          <div className="my-3 border-t border-slate-100"></div>
+
+          {/* 답변 / 로딩 / 에러 */}
+          <div className="flex items-start gap-3">
+            <span className={`flex-shrink-0 w-7 h-7 rounded-full text-white text-xs font-bold flex items-center justify-center mt-0.5 ${error ? "bg-rose-500" : "bg-indigo-600"}`}>
+              A
+            </span>
+            <div className="pt-0.5 flex-1">
+              {loading ? (
+                <p className="text-slate-500">
+                  답변을 찾는 중…
+                  <LoadingDots />
+                </p>
+              ) : error ? (
+                <div className="rounded-lg bg-rose-50 border border-rose-200 px-3 py-2 text-sm text-rose-700">
+                  {error}
+                </div>
+              ) : (
+                <p className="text-slate-700 leading-relaxed whitespace-pre-wrap">{answer}</p>
+              )}
+            </div>
+          </div>
+        </Card>
+      );
+    }
+
+    // ========================================
+    // 📄 메인 페이지
+    // ========================================
+    function AboutMeQA() {
+      const [question, setQuestion] = useState("");
+      const [loading, setLoading] = useState(false);
+      // history: 최신이 위로 쌓임. 각 항목 { id, question, answer, error, loading }
+      const [history, setHistory] = useState([]);
+      const inputRef = useRef(null);
+      const idRef = useRef(0);
+
+      const trimmed = question.trim();
+      const canAsk = trimmed.length > 0 && !loading;
+
+      const askQuestion = useCallback(async (rawQ) => {
+        const q = (rawQ ?? "").trim();
+        if (!q || loading) return;
+
+        const id = ++idRef.current;
+        setLoading(true);
+        setQuestion("");
+        // 새 항목을 로딩 상태로 맨 위에 추가
+        setHistory((prev) => [{ id, question: q, answer: "", error: null, loading: true }, ...prev]);
+
+        try {
+          const res = await fetch(`${API_BASE_URL}/api/ask`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ question: q }),
+          });
+
+          let data = null;
+          try {
+            data = await res.json();
+          } catch (_) {
+            data = null;
+          }
+
+          if (!res.ok) {
+            const msg = (data && data.error) ? data.error : `요청에 실패했어요 (HTTP ${res.status})`;
+            setHistory((prev) => prev.map((item) =>
+              item.id === id ? { ...item, loading: false, error: msg } : item
+            ));
+          } else {
+            const answer = (data && typeof data.answer === "string")
+              ? data.answer
+              : "답변을 받지 못했어요.";
+            setHistory((prev) => prev.map((item) =>
+              item.id === id ? { ...item, loading: false, answer } : item
+            ));
+          }
+        } catch (err) {
+          setHistory((prev) => prev.map((item) =>
+            item.id === id
+              ? { ...item, loading: false, error: "서버에 연결할 수 없어요. 서버(server.js)가 실행 중인지 확인해 주세요." }
+              : item
+          ));
+        } finally {
+          setLoading(false);
+          // 입력칸 포커스 복귀
+          if (inputRef.current) inputRef.current.focus();
+        }
+      }, [loading]);
+
+      const handleSubmit = (e) => {
+        e.preventDefault();
+        if (canAsk) askQuestion(trimmed);
+      };
+
+      const handleKeyDown = (e) => {
+        if (e.key === "Enter" && !e.shiftKey) {
+          e.preventDefault();
+          if (canAsk) askQuestion(trimmed);
+        }
+      };
+
+      return (
+        <div className="min-h-screen px-4 py-8 sm:py-12">
+          <div className="max-w-2xl mx-auto">
+            <Header />
+
+            {/* 입력 카드 */}
+            <Card className="p-5 sm:p-6 mb-5">
+              <form onSubmit={handleSubmit}>
+                <label htmlFor="q" className="sr-only">질문 입력</label>
+                <div className="flex flex-col sm:flex-row gap-3">
+                  <input
+                    id="q"
+                    ref={inputRef}
+                    type="text"
+                    value={question}
+                    onChange={(e) => setQuestion(e.target.value)}
+                    onKeyDown={handleKeyDown}
+                    placeholder="예: 이 사람 무슨 일 해?"
+                    disabled={loading}
+                    autoFocus
+                    aria-label="질문 입력"
+                    className="flex-1 px-4 py-2.5 rounded-xl border border-slate-300 text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 disabled:bg-slate-50"
+                  />
+                  <Button type="submit" disabled={!canAsk} size="md" className="sm:w-auto w-full">
+                    {loading ? "답변 중…" : "물어보기"}
+                  </Button>
+                </div>
+              </form>
+
+              {!trimmed && !loading && (
+                <p className="mt-2 text-xs text-slate-400">질문을 입력하면 버튼이 활성화돼요.</p>
+              )}
+
+              {/* 예시 질문 칩 */}
+              <div className="mt-4">
+                <p className="text-xs font-medium text-slate-500 mb-2">예시 질문</p>
+                <div className="flex flex-wrap gap-2">
+                  {EXAMPLE_QUESTIONS.map((ex) => (
+                    <Chip key={ex} label={ex} disabled={loading} onClick={() => askQuestion(ex)} />
+                  ))}
+                </div>
+              </div>
+            </Card>
+
+            {/* Q&A 히스토리 */}
+            {history.length === 0 ? (
+              <div className="text-center text-slate-400 py-12">
+                <div className="text-4xl mb-3">💬</div>
+                <p className="text-sm">아직 질문이 없어요. 위에서 궁금한 점을 물어보세요!</p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {history.map((item) => (
+                  <QACard
+                    key={item.id}
+                    question={item.question}
+                    answer={item.answer}
+                    error={item.error}
+                    loading={item.loading}
+                  />
+                ))}
+              </div>
+            )}
+
+            <footer className="mt-10 text-center text-xs text-slate-400">
+              <p>About Me Q&A · React + Tailwind · 단일 파일</p>
+            </footer>
+          </div>
+        </div>
+      );
+    }
+
+    // ========================================
+    // 🚀 App & 렌더링
+    // ========================================
+    function App() {
+      return <AboutMeQA />;
+    }
+
+    ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+  </script>
+</body>
+</html>
