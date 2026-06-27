@@ -1,0 +1,11 @@
+{
+  "version": 2,
+  "builds": [
+    { "src": "api/todos.js", "use": "@vercel/node" },
+    { "src": "index.html", "use": "@vercel/static" }
+  ],
+  "routes": [
+    { "src": "/api/todos", "dest": "/api/todos.js" },
+    { "src": "/(.*)", "dest": "/index.html" }
+  ]
+}
