@@ -1,0 +1,516 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TOAO Todo - 할 일 목록</title>
+  <script src="https://cdn.tailwindcss.com/3.4.16"></script>
+  <!-- ⚠️ Babel standalone 은 반드시 7.23.5 로 고정한다. 최신(8.x)으로 올라가면
+       type="text/babel" 인라인 변환이 깨져 빈 화면이 뜬다. -->
+  <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone@7.23.5/babel.min.js"></script>
+  <style>
+    /* Tailwind 으로 표현하기 어려운 부드러운 진입 애니메이션 */
+    @keyframes fadeInUp {
+      from { opacity: 0; transform: translateY(8px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    .animate-fade-in-up { animation: fadeInUp 0.35s ease-out both; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .animate-spin-slow { animation: spin 0.8s linear infinite; }
+  </style>
+</head>
+<body class="bg-slate-100">
+  <div id="root"></div>
+
+  <script type="text/babel">
+    // ========================================
+    // React Hooks
+    // ========================================
+    const { useState, useEffect, useMemo } = React;
+
+    // ========================================
+    // 설정 (API)
+    // ========================================
+    // 같은 서버에서 API 가 제공되므로 상대경로 사용 (localhost 하드코딩 금지)
+    const API_BASE_URL = '/api';
+
+    // 상태(status) 메타데이터: 배지 색상 + 표시 순서
+    const STATUS_META = {
+      '진행 전': { badge: 'bg-slate-200 text-slate-700 ring-slate-300', dot: 'bg-slate-400' },
+      '진행 중': { badge: 'bg-blue-100 text-blue-700 ring-blue-300',    dot: 'bg-blue-500' },
+      '완료':   { badge: 'bg-green-100 text-green-700 ring-green-300',  dot: 'bg-green-500' },
+    };
+    const STATUS_ORDER = ['진행 전', '진행 중', '완료'];
+
+    function getStatusMeta(status) {
+      return STATUS_META[status] || { badge: 'bg-slate-200 text-slate-700 ring-slate-300', dot: 'bg-slate-400' };
+    }
+
+    // ========================================
+    // 🎨 Design System Components
+    // ========================================
+
+    // 상태 배지
+    function StatusBadge({ status, className = '' }) {
+      const meta = getStatusMeta(status);
+      return (
+        <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold ring-1 ring-inset ${meta.badge} ${className}`}>
+          <span className={`h-1.5 w-1.5 rounded-full ${meta.dot}`} aria-hidden="true"></span>
+          {status}
+        </span>
+      );
+    }
+
+    // 카드 래퍼
+    function Card({ children, className = '' }) {
+      return (
+        <div className={`rounded-2xl bg-white shadow-sm ring-1 ring-slate-200/70 ${className}`}>
+          {children}
+        </div>
+      );
+    }
+
+    // 요약 통계 칩
+    function StatChip({ label, count, dotClass }) {
+      return (
+        <div className="flex items-center gap-2 rounded-xl bg-white/70 px-3 py-2 ring-1 ring-inset ring-slate-200">
+          <span className={`h-2.5 w-2.5 rounded-full ${dotClass}`} aria-hidden="true"></span>
+          <span className="text-sm text-slate-600">{label}</span>
+          <span className="text-sm font-bold text-slate-900">{count}</span>
+        </div>
+      );
+    }
+
+    // 로딩 스피너
+    function Spinner() {
+      return (
+        <div className="flex flex-col items-center justify-center gap-3 py-24 text-slate-500" role="status" aria-live="polite">
+          <div className="h-10 w-10 rounded-full border-4 border-slate-200 border-t-blue-500 animate-spin-slow" aria-hidden="true"></div>
+          <p className="text-sm">할 일 목록을 불러오는 중...</p>
+        </div>
+      );
+    }
+
+    // 에러 상태
+    function ErrorState({ message, onRetry }) {
+      return (
+        <Card className="mx-auto max-w-md p-8 text-center">
+          <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-red-100 text-2xl" aria-hidden="true">⚠️</div>
+          <h2 className="text-lg font-bold text-slate-800">목록을 불러오지 못했습니다</h2>
+          <p className="mt-2 break-words text-sm text-slate-500">{message}</p>
+          <button
+            onClick={onRetry}
+            className="mt-6 inline-flex items-center justify-center rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-2"
+          >
+            다시 시도
+          </button>
+        </Card>
+      );
+    }
+
+    // 빈 상태
+    function EmptyState() {
+      return (
+        <Card className="mx-auto max-w-md p-12 text-center">
+          <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-slate-100 text-3xl" aria-hidden="true">🗒️</div>
+          <h2 className="text-lg font-bold text-slate-800">등록된 할 일이 없습니다</h2>
+          <p className="mt-2 text-sm text-slate-500">새로운 할 일을 추가하면 이곳에 표시됩니다.</p>
+        </Card>
+      );
+    }
+
+    // ========================================
+    // 🧩 Todo 카드
+    // ========================================
+    function TodoCard({ todo, index, onDelete, onChangeStatus }) {
+      const { title, dueDate, status, memo, filename } = todo;
+      return (
+        <Card
+          className="flex flex-col p-5 transition hover:-translate-y-0.5 hover:shadow-md animate-fade-in-up"
+          // 카드마다 살짝 시차를 둔 진입 애니메이션
+        >
+          <div style={{ animationDelay: `${index * 40}ms` }} className="contents"></div>
+          <div className="flex items-start justify-between gap-3">
+            <h3 className="text-lg font-bold leading-snug text-slate-900 break-words">{title}</h3>
+            <StatusBadge status={status} className="shrink-0" />
+          </div>
+
+          {dueDate && (
+            <div className="mt-3 inline-flex items-center gap-1.5 text-sm text-slate-500">
+              <span aria-hidden="true">📅</span>
+              <span>마감일</span>
+              <span className="font-medium text-slate-700">{dueDate}</span>
+            </div>
+          )}
+
+          {memo && (
+            <p className="mt-3 whitespace-pre-wrap rounded-xl bg-slate-50 p-3 text-sm leading-relaxed text-slate-600 ring-1 ring-inset ring-slate-100">
+              {memo}
+            </p>
+          )}
+
+          {/* 상태 빠른 변경 */}
+          {onChangeStatus && (
+            <div className="mt-4 flex flex-wrap items-center gap-1.5 border-t border-slate-100 pt-3">
+              <span className="mr-1 text-xs text-slate-400">상태 변경</span>
+              {STATUS_ORDER.map((s) => (
+                <button
+                  key={s}
+                  onClick={() => onChangeStatus(filename, s)}
+                  disabled={s === status}
+                  className={`rounded-lg px-2.5 py-1 text-xs font-semibold transition focus:outline-none focus:ring-2 focus:ring-blue-200 ${
+                    s === status
+                      ? 'cursor-default bg-slate-100 text-slate-400'
+                      : 'bg-white text-slate-600 ring-1 ring-inset ring-slate-300 hover:bg-slate-50'
+                  }`}
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
+          )}
+
+          <div className="mt-3 flex items-center justify-between gap-2 border-t border-slate-100 pt-3">
+            {filename ? (
+              <span className="flex min-w-0 items-center gap-1.5 text-xs text-slate-400">
+                <span aria-hidden="true">📄</span>
+                <span className="truncate">{filename}</span>
+              </span>
+            ) : <span />}
+            {onDelete && (
+              <button
+                onClick={() => onDelete(filename)}
+                className="shrink-0 inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-semibold text-red-600 transition hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-red-200"
+                aria-label="삭제"
+              >
+                <span aria-hidden="true">🗑</span> 삭제
+              </button>
+            )}
+          </div>
+        </Card>
+      );
+    }
+
+    // ========================================
+    // 🧩 헤더 / 요약
+    // ========================================
+    function Header({ todos }) {
+      const summary = useMemo(() => {
+        const counts = { '진행 전': 0, '진행 중': 0, '완료': 0 };
+        todos.forEach((t) => {
+          if (counts[t.status] === undefined) counts[t.status] = 0;
+          counts[t.status] += 1;
+        });
+        return counts;
+      }, [todos]);
+
+      return (
+        <header className="mb-8">
+          <div className="flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <p className="text-sm font-semibold uppercase tracking-wider text-blue-600">TOAO Todo</p>
+              <h1 className="mt-1 text-3xl font-extrabold tracking-tight text-slate-900 sm:text-4xl">할 일 목록</h1>
+            </div>
+            <div className="rounded-2xl bg-blue-600 px-4 py-2 text-white shadow-sm">
+              <span className="text-sm opacity-90">전체 </span>
+              <span className="text-xl font-extrabold">{todos.length}</span>
+              <span className="text-sm opacity-90"> 개</span>
+            </div>
+          </div>
+
+          {todos.length > 0 && (
+            <div className="mt-5 flex flex-wrap gap-2">
+              {STATUS_ORDER.map((status) => (
+                <StatChip
+                  key={status}
+                  label={status}
+                  count={summary[status] || 0}
+                  dotClass={getStatusMeta(status).dot}
+                />
+              ))}
+            </div>
+          )}
+        </header>
+      );
+    }
+
+    // ========================================
+    // ➕ 할 일 추가 폼
+    // ========================================
+    function AddTodoForm({ onCreate }) {
+      const [open, setOpen] = useState(false);
+      const [form, setForm] = useState({ title: '', dueDate: '', status: '진행 전', memo: '' });
+      const [submitting, setSubmitting] = useState(false);
+      const [err, setErr] = useState(null);
+
+      const update = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }));
+
+      const reset = () => setForm({ title: '', dueDate: '', status: '진행 전', memo: '' });
+
+      const submit = (e) => {
+        e.preventDefault();
+        if (!form.title.trim()) { setErr('제목을 입력해 주세요.'); return; }
+        setSubmitting(true);
+        setErr(null);
+        onCreate(form)
+          .then(() => { reset(); setOpen(false); })
+          .catch((e2) => setErr(e2.message))
+          .finally(() => setSubmitting(false));
+      };
+
+      if (!open) {
+        return (
+          <div className="mb-6">
+            <button
+              onClick={() => setOpen(true)}
+              className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-2"
+            >
+              <span className="text-lg leading-none">＋</span> 할 일 추가
+            </button>
+          </div>
+        );
+      }
+
+      const inputCls = 'w-full rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-800 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200';
+
+      return (
+        <Card className="mb-6 p-5 animate-fade-in-up">
+          <form onSubmit={submit} className="space-y-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div className="sm:col-span-2">
+                <label className="mb-1 block text-xs font-semibold text-slate-600">제목 *</label>
+                <input className={inputCls} value={form.title} onChange={update('title')} placeholder="예: 장보기" autoFocus />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-semibold text-slate-600">마감일</label>
+                <input type="date" className={inputCls} value={form.dueDate} onChange={update('dueDate')} />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-semibold text-slate-600">상태</label>
+                <select className={inputCls} value={form.status} onChange={update('status')}>
+                  {STATUS_ORDER.map((s) => <option key={s} value={s}>{s}</option>)}
+                </select>
+              </div>
+              <div className="sm:col-span-2">
+                <label className="mb-1 block text-xs font-semibold text-slate-600">메모</label>
+                <textarea className={inputCls + ' resize-y'} rows="2" value={form.memo} onChange={update('memo')} placeholder="상세 내용" />
+              </div>
+            </div>
+
+            {err && <p className="text-sm text-red-600">{err}</p>}
+
+            <div className="flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => { setOpen(false); setErr(null); }}
+                className="rounded-xl px-4 py-2 text-sm font-semibold text-slate-600 transition hover:bg-slate-100"
+              >
+                취소
+              </button>
+              <button
+                type="submit"
+                disabled={submitting}
+                className="rounded-xl bg-blue-600 px-5 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700 disabled:opacity-60"
+              >
+                {submitting ? '추가 중...' : '추가하기'}
+              </button>
+            </div>
+          </form>
+        </Card>
+      );
+    }
+
+    // ========================================
+    // 🔎 필터 + 검색 바
+    // ========================================
+    function FilterBar({ filter, onFilter, query, onQuery, counts, total }) {
+      const tabs = [{ key: '전체', label: '전체', count: total }]
+        .concat(STATUS_ORDER.map((s) => ({ key: s, label: s, count: counts[s] || 0 })));
+
+      return (
+        <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-wrap gap-1.5">
+            {tabs.map((t) => (
+              <button
+                key={t.key}
+                onClick={() => onFilter(t.key)}
+                className={`inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-sm font-semibold transition focus:outline-none focus:ring-2 focus:ring-blue-200 ${
+                  filter === t.key
+                    ? 'bg-blue-600 text-white shadow-sm'
+                    : 'bg-white text-slate-600 ring-1 ring-inset ring-slate-200 hover:bg-slate-50'
+                }`}
+              >
+                {t.label}
+                <span className={`rounded-full px-1.5 text-xs ${filter === t.key ? 'bg-white/20' : 'bg-slate-100 text-slate-500'}`}>
+                  {t.count}
+                </span>
+              </button>
+            ))}
+          </div>
+          <div className="relative sm:w-64">
+            <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" aria-hidden="true">🔍</span>
+            <input
+              value={query}
+              onChange={(e) => onQuery(e.target.value)}
+              placeholder="제목·메모 검색"
+              className="w-full rounded-xl border border-slate-300 py-2 pl-9 pr-3 text-sm text-slate-800 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
+            />
+          </div>
+        </div>
+      );
+    }
+
+    // ========================================
+    // 🚀 App
+    // ========================================
+    function App() {
+      const [todos, setTodos] = useState([]);
+      const [loading, setLoading] = useState(true);
+      const [error, setError] = useState(null);
+      const [filter, setFilter] = useState('전체');   // 상태 필터
+      const [query, setQuery] = useState('');          // 검색어
+
+      const fetchTodos = React.useCallback(() => {
+        setLoading(true);
+        setError(null);
+        fetch(`${API_BASE_URL}/todos`)
+          .then((res) => {
+            if (!res.ok) throw new Error(`서버 응답 오류 (HTTP ${res.status})`);
+            return res.json();
+          })
+          .then((data) => {
+            // 방어적 처리: 배열이 아닐 경우 빈 배열로
+            setTodos(Array.isArray(data) ? data : []);
+          })
+          .catch((err) => {
+            setError(err.message || '알 수 없는 오류가 발생했습니다.');
+          })
+          .finally(() => setLoading(false));
+      }, []);
+
+      useEffect(() => {
+        fetchTodos();
+      }, [fetchTodos]);
+
+      // 할 일 추가
+      const createTodo = React.useCallback((todo) => {
+        return fetch(`${API_BASE_URL}/todos`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(todo),
+        })
+          .then((res) => res.json().then((data) => ({ ok: res.ok, data })))
+          .then(({ ok, data }) => {
+            if (!ok || !data.success) throw new Error(data.message || '추가에 실패했습니다.');
+            fetchTodos();
+          });
+      }, [fetchTodos]);
+
+      // 할 일 상태 변경 (부분 수정 PUT)
+      const changeStatus = React.useCallback((filename, status) => {
+        fetch(`${API_BASE_URL}/todos`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ filename, status }),
+        })
+          .then((res) => res.json().then((data) => ({ ok: res.ok, data })))
+          .then(({ ok, data }) => {
+            if (!ok || !data.success) throw new Error(data.message || '상태 변경에 실패했습니다.');
+            fetchTodos();
+          })
+          .catch((err) => window.alert(err.message));
+      }, [fetchTodos]);
+
+      // 할 일 삭제
+      const deleteTodo = React.useCallback((filename) => {
+        if (!window.confirm('이 할 일을 삭제할까요?')) return;
+        fetch(`${API_BASE_URL}/todos`, {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ filename }),
+        })
+          .then((res) => res.json().then((data) => ({ ok: res.ok, data })))
+          .then(({ ok, data }) => {
+            if (!ok || !data.success) throw new Error(data.message || '삭제에 실패했습니다.');
+            fetchTodos();
+          })
+          .catch((err) => window.alert(err.message));
+      }, [fetchTodos]);
+
+      // 상태별 개수 (필터 탭 배지에 사용)
+      const statusCounts = useMemo(() => {
+        const c = {};
+        todos.forEach((t) => { c[t.status] = (c[t.status] || 0) + 1; });
+        return c;
+      }, [todos]);
+
+      // 필터 + 검색 적용 결과
+      const visibleTodos = useMemo(() => {
+        const q = query.trim().toLowerCase();
+        return todos.filter((t) => {
+          if (filter !== '전체' && t.status !== filter) return false;
+          if (!q) return true;
+          return (t.title || '').toLowerCase().includes(q)
+            || (t.memo || '').toLowerCase().includes(q);
+        });
+      }, [todos, filter, query]);
+
+      const hasTodos = todos.length > 0;
+
+      return (
+        <div className="min-h-screen">
+          <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6 sm:py-12">
+            <Header todos={loading || error ? [] : todos} />
+
+            {!loading && !error && <AddTodoForm onCreate={createTodo} />}
+
+            {!loading && !error && hasTodos && (
+              <FilterBar
+                filter={filter}
+                onFilter={setFilter}
+                query={query}
+                onQuery={setQuery}
+                counts={statusCounts}
+                total={todos.length}
+              />
+            )}
+
+            <main>
+              {loading ? (
+                <Spinner />
+              ) : error ? (
+                <ErrorState message={error} onRetry={fetchTodos} />
+              ) : todos.length === 0 ? (
+                <EmptyState />
+              ) : visibleTodos.length === 0 ? (
+                <Card className="mx-auto max-w-md p-12 text-center">
+                  <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-slate-100 text-3xl" aria-hidden="true">🔍</div>
+                  <h2 className="text-lg font-bold text-slate-800">조건에 맞는 할 일이 없습니다</h2>
+                  <p className="mt-2 text-sm text-slate-500">필터나 검색어를 바꿔 보세요.</p>
+                </Card>
+              ) : (
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                  {visibleTodos.map((todo, i) => (
+                    <TodoCard key={todo.id ?? todo.filename ?? i} todo={todo} index={i} onDelete={deleteTodo} onChangeStatus={changeStatus} />
+                  ))}
+                </div>
+              )}
+            </main>
+
+            <footer className="mt-12 text-center text-xs text-slate-400">
+              TOAO Todo · React + Tailwind 단일 파일 앱
+            </footer>
+          </div>
+        </div>
+      );
+    }
+
+    // ========================================
+    // Rendering
+    // ========================================
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>
