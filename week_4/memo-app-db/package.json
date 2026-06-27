@@ -2,7 +2,6 @@
   "name": "memo-app-db",
   "version": "1.0.0",
   "description": "PostgreSQL(Supabase) 기반 메모장 앱",
-  "main": "server.js",
   "scripts": {
     "start": "node server.js"
   },
