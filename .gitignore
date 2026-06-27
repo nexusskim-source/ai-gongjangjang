@@ -17,3 +17,9 @@ __MACOSX/
 # API 키 환경파일 (절대 커밋 금지)
 .env
 **/.env
+
+# DB 자격증명 메모 (평문 비밀번호 포함 — 절대 커밋 금지)
+week_4/supadb.txt
+
+# node 의존성
+**/node_modules/

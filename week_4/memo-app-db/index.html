@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>메모장 · PostgreSQL 저장</title>
+  <script src="https://cdn.tailwindcss.com/3.4.16"></script>
+  <!-- ⚠️ Babel standalone 은 반드시 7.23.5 로 고정한다. 최신(8.x)이면 인라인 변환이 깨져 빈 화면이 된다. -->
+  <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone@7.23.5/babel.min.js"></script>
+  <style>
+    @keyframes fadeInUp { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+    .animate-fade-in-up { animation: fadeInUp 0.3s ease-out both; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .animate-spin-slow { animation: spin 0.8s linear infinite; }
+    @keyframes pop { from { opacity: 0; transform: scale(0.96); } to { opacity: 1; transform: scale(1); } }
+    .animate-pop { animation: pop 0.18s ease-out both; }
+  </style>
+</head>
+<body class="bg-amber-50">
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useMemo, useCallback } = React;
+
+    // 같은 서버에서 API 제공 → 상대경로 사용
+    const API_BASE_URL = '/api';
+
+    // 메모 카드 배경 팔레트 (id 기준으로 안정적으로 색 지정)
+    const PALETTE = [
+      'bg-yellow-100 ring-yellow-200',
+      'bg-rose-100 ring-rose-200',
+      'bg-sky-100 ring-sky-200',
+      'bg-emerald-100 ring-emerald-200',
+      'bg-violet-100 ring-violet-200',
+      'bg-orange-100 ring-orange-200',
+    ];
+    const paletteFor = (id) => PALETTE[((Number(id) || 0) % PALETTE.length + PALETTE.length) % PALETTE.length];
+
+    // 상대 시간 표시 (예: "방금", "3분 전", "2일 전")
+    function timeAgo(iso) {
+      if (!iso) return '';
+      const d = new Date(iso);
+      const diff = (Date.now() - d.getTime()) / 1000;
+      if (diff < 60) return '방금';
+      if (diff < 3600) return `${Math.floor(diff / 60)}분 전`;
+      if (diff < 86400) return `${Math.floor(diff / 3600)}시간 전`;
+      if (diff < 86400 * 7) return `${Math.floor(diff / 86400)}일 전`;
+      return d.toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' });
+    }
+
+    // ========================================
+    // 작은 UI 조각들
+    // ========================================
+    function Spinner() {
+      return (
+        <div className="flex flex-col items-center justify-center gap-3 py-24 text-amber-700/70" role="status">
+          <div className="h-10 w-10 rounded-full border-4 border-amber-200 border-t-amber-500 animate-spin-slow" aria-hidden="true"></div>
+          <p className="text-sm">메모를 불러오는 중...</p>
+        </div>
+      );
+    }
+
+    function ErrorState({ message, onRetry }) {
+      return (
+        <div className="mx-auto max-w-md rounded-2xl bg-white p-8 text-center shadow-sm ring-1 ring-red-100">
+          <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-red-100 text-2xl" aria-hidden="true">⚠️</div>
+          <h2 className="text-lg font-bold text-slate-800">불러오지 못했습니다</h2>
+          <p className="mt-2 break-words text-sm text-slate-500">{message}</p>
+          <button onClick={onRetry} className="mt-6 rounded-xl bg-amber-500 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-amber-600">
+            다시 시도
+          </button>
+        </div>
+      );
+    }
+
+    function EmptyState({ filtered }) {
+      return (
+        <div className="mx-auto max-w-md rounded-2xl bg-white p-12 text-center shadow-sm ring-1 ring-amber-100">
+          <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-amber-100 text-3xl" aria-hidden="true">
+            {filtered ? '🔍' : '📝'}
+          </div>
+          <h2 className="text-lg font-bold text-slate-800">{filtered ? '검색 결과가 없습니다' : '아직 메모가 없습니다'}</h2>
+          <p className="mt-2 text-sm text-slate-500">{filtered ? '다른 검색어를 입력해 보세요.' : '＋ 버튼으로 첫 메모를 작성해 보세요.'}</p>
+        </div>
+      );
+    }
+
+    // ========================================
+    // 메모 카드
+    // ========================================
+    function NoteCard({ note, onEdit, onDelete }) {
+      const { id, title, content, updatedAt } = note;
+      return (
+        <div
+          onClick={() => onEdit(note)}
+          className={`group flex cursor-pointer flex-col rounded-2xl p-5 shadow-sm ring-1 ring-inset transition hover:-translate-y-0.5 hover:shadow-md animate-fade-in-up ${paletteFor(id)}`}
+        >
+          <div className="flex items-start justify-between gap-2">
+            <h3 className="line-clamp-2 text-base font-bold leading-snug text-slate-900 break-words">
+              {title || '(제목 없음)'}
+            </h3>
+            <button
+              onClick={(e) => { e.stopPropagation(); onDelete(id); }}
+              className="shrink-0 rounded-lg p-1 text-slate-400 opacity-0 transition hover:bg-white/60 hover:text-red-600 focus:opacity-100 group-hover:opacity-100"
+              aria-label="삭제"
+              title="삭제"
+            >🗑</button>
+          </div>
+          {content && (
+            <p className="mt-2 line-clamp-6 whitespace-pre-wrap text-sm leading-relaxed text-slate-700">{content}</p>
+          )}
+          <div className="mt-4 flex items-center gap-1.5 text-xs text-slate-500/90">
+            <span aria-hidden="true">🕒</span>
+            <span>{timeAgo(updatedAt)} 수정</span>
+            <span className="ml-auto text-slate-400">#{id}</span>
+          </div>
+        </div>
+      );
+    }
+
+    // ========================================
+    // 작성/수정 모달
+    // ========================================
+    function NoteModal({ initial, onClose, onSave, onDelete }) {
+      const isEdit = !!(initial && initial.id);
+      const [title, setTitle] = useState(initial?.title || '');
+      const [content, setContent] = useState(initial?.content || '');
+      const [saving, setSaving] = useState(false);
+      const [err, setErr] = useState(null);
+
+      const submit = (e) => {
+        e.preventDefault();
+        if (!title.trim() && !content.trim()) { setErr('제목이나 내용 중 하나는 입력해 주세요.'); return; }
+        setSaving(true); setErr(null);
+        onSave({ id: initial?.id, title, content })
+          .then(() => onClose())
+          .catch((e2) => { setErr(e2.message); setSaving(false); });
+      };
+
+      const inputCls = 'w-full rounded-xl border border-amber-200 bg-amber-50/40 px-3 py-2 text-slate-800 focus:border-amber-400 focus:outline-none focus:ring-2 focus:ring-amber-200';
+
+      return (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-900/40 p-0 sm:items-center sm:p-4" onClick={onClose}>
+          <div className="w-full max-w-lg animate-pop rounded-t-2xl bg-white p-6 shadow-xl sm:rounded-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="mb-4 flex items-center justify-between">
+              <h2 className="text-lg font-bold text-slate-900">{isEdit ? '메모 수정' : '새 메모'}</h2>
+              <button onClick={onClose} className="rounded-lg p-1 text-slate-400 transition hover:bg-slate-100" aria-label="닫기">✕</button>
+            </div>
+            <form onSubmit={submit} className="space-y-3">
+              <input className={inputCls + ' text-base font-semibold'} placeholder="제목" value={title} onChange={(e) => setTitle(e.target.value)} autoFocus />
+              <textarea className={inputCls + ' resize-y leading-relaxed'} rows="8" placeholder="내용을 입력하세요..." value={content} onChange={(e) => setContent(e.target.value)} />
+              {err && <p className="text-sm text-red-600">{err}</p>}
+              <div className="flex items-center justify-between gap-2 pt-1">
+                <div>
+                  {isEdit && (
+                    <button type="button" onClick={() => onDelete(initial.id)} className="rounded-xl px-3 py-2 text-sm font-semibold text-red-600 transition hover:bg-red-50">
+                      삭제
+                    </button>
+                  )}
+                </div>
+                <div className="flex items-center gap-2">
+                  <button type="button" onClick={onClose} className="rounded-xl px-4 py-2 text-sm font-semibold text-slate-600 transition hover:bg-slate-100">취소</button>
+                  <button type="submit" disabled={saving} className="rounded-xl bg-amber-500 px-5 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-amber-600 disabled:opacity-60">
+                    {saving ? '저장 중...' : '저장'}
+                  </button>
+                </div>
+              </div>
+            </form>
+          </div>
+        </div>
+      );
+    }
+
+    // ========================================
+    // App
+    // ========================================
+    function App() {
+      const [notes, setNotes] = useState([]);
+      const [loading, setLoading] = useState(true);
+      const [error, setError] = useState(null);
+      const [query, setQuery] = useState('');
+      const [modal, setModal] = useState(null); // null | {} (새 메모) | note (수정)
+
+      const fetchNotes = useCallback(() => {
+        setLoading(true); setError(null);
+        fetch(`${API_BASE_URL}/notes`)
+          .then((res) => { if (!res.ok) throw new Error(`서버 응답 오류 (HTTP ${res.status})`); return res.json(); })
+          .then((data) => setNotes(Array.isArray(data) ? data : []))
+          .catch((err) => setError(err.message || '알 수 없는 오류'))
+          .finally(() => setLoading(false));
+      }, []);
+
+      useEffect(() => { fetchNotes(); }, [fetchNotes]);
+
+      // 저장 (id 있으면 수정, 없으면 추가)
+      const saveNote = useCallback(({ id, title, content }) => {
+        const method = id ? 'PUT' : 'POST';
+        const body = id ? { id, title, content } : { title, content };
+        return fetch(`${API_BASE_URL}/notes`, {
+          method,
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        })
+          .then((res) => res.json().then((data) => ({ ok: res.ok, data })))
+          .then(({ ok, data }) => {
+            if (!ok || !data.success) throw new Error(data.message || '저장에 실패했습니다.');
+            fetchNotes();
+          });
+      }, [fetchNotes]);
+
+      // 삭제
+      const deleteNote = useCallback((id) => {
+        if (!window.confirm('이 메모를 삭제할까요?')) return Promise.resolve();
+        return fetch(`${API_BASE_URL}/notes`, {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id }),
+        })
+          .then((res) => res.json().then((data) => ({ ok: res.ok, data })))
+          .then(({ ok, data }) => {
+            if (!ok || !data.success) throw new Error(data.message || '삭제에 실패했습니다.');
+            setModal(null);
+            fetchNotes();
+          })
+          .catch((err) => window.alert(err.message));
+      }, [fetchNotes]);
+
+      const visible = useMemo(() => {
+        const q = query.trim().toLowerCase();
+        if (!q) return notes;
+        return notes.filter((n) =>
+          (n.title || '').toLowerCase().includes(q) || (n.content || '').toLowerCase().includes(q)
+        );
+      }, [notes, query]);
+
+      return (
+        <div className="min-h-screen">
+          <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6 sm:py-12">
+            {/* 헤더 */}
+            <header className="mb-8 flex flex-wrap items-end justify-between gap-3">
+              <div>
+                <p className="text-sm font-semibold uppercase tracking-wider text-amber-600">PostgreSQL Notes</p>
+                <h1 className="mt-1 text-3xl font-extrabold tracking-tight text-slate-900 sm:text-4xl">메모장 📝</h1>
+              </div>
+              <div className="rounded-2xl bg-amber-500 px-4 py-2 text-white shadow-sm">
+                <span className="text-sm opacity-90">전체 </span>
+                <span className="text-xl font-extrabold">{notes.length}</span>
+                <span className="text-sm opacity-90"> 개</span>
+              </div>
+            </header>
+
+            {/* 검색 + 새 메모 */}
+            {!loading && !error && (
+              <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center">
+                <div className="relative flex-1">
+                  <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-amber-400" aria-hidden="true">🔍</span>
+                  <input
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
+                    placeholder="제목·내용 검색"
+                    className="w-full rounded-xl border border-amber-200 bg-white py-2.5 pl-9 pr-3 text-sm text-slate-800 shadow-sm focus:border-amber-400 focus:outline-none focus:ring-2 focus:ring-amber-200"
+                  />
+                </div>
+                <button
+                  onClick={() => setModal({})}
+                  className="inline-flex items-center justify-center gap-2 rounded-xl bg-amber-500 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-amber-600"
+                >
+                  <span className="text-lg leading-none">＋</span> 새 메모
+                </button>
+              </div>
+            )}
+
+            <main>
+              {loading ? <Spinner />
+                : error ? <ErrorState message={error} onRetry={fetchNotes} />
+                : visible.length === 0 ? <EmptyState filtered={notes.length > 0} />
+                : (
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                    {visible.map((note) => (
+                      <NoteCard key={note.id} note={note} onEdit={setModal} onDelete={deleteNote} />
+                    ))}
+                  </div>
+                )}
+            </main>
+
+            <footer className="mt-12 text-center text-xs text-amber-700/50">
+              메모장 · React + Tailwind · PostgreSQL(Supabase) 저장
+            </footer>
+          </div>
+
+          {modal && (
+            <NoteModal
+              initial={modal}
+              onClose={() => setModal(null)}
+              onSave={saveNote}
+              onDelete={deleteNote}
+            />
+          )}
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>
