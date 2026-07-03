@@ -1,0 +1,26 @@
+[
+  {
+    "id": "88567fe4-f9c0-49b0-b86f-fcf78bf2061a",
+    "name": "달걀",
+    "category": "유제품",
+    "quantity": 30,
+    "unit": "개",
+    "addedAt": "2026-07-03T14:15:13.746Z"
+  },
+  {
+    "id": "69f64bda-73b3-4eed-9871-a1271006c976",
+    "name": "우유",
+    "category": "유제품",
+    "quantity": 2,
+    "unit": "팩",
+    "addedAt": "2026-07-03T14:15:34.998Z"
+  },
+  {
+    "id": "1b3c7efe-2b6f-4f61-985b-4176cfe6e5f2",
+    "name": "자두",
+    "category": "채소",
+    "quantity": 8,
+    "unit": "개",
+    "addedAt": "2026-07-03T14:15:52.607Z"
+  }
+]

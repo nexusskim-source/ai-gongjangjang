@@ -1,0 +1,12 @@
+{
+  "name": "study-app",
+  "version": "1.0.0",
+  "description": "하루 06:00~23:00 1시간 단위 공부 계획 관리 앱 (로컬: http+JSON파일 / 배포: Vercel 서버리스+Supabase)",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "pg": "^8.13.1"
+  }
+}

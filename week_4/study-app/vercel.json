@@ -1,0 +1,18 @@
+{
+  "version": 2,
+  "builds": [
+    { "src": "api/auth.js", "use": "@vercel/node" },
+    { "src": "api/plans.js", "use": "@vercel/node" },
+    { "src": "api/textbooks.js", "use": "@vercel/node" },
+    { "src": "api/events.js", "use": "@vercel/node" },
+    { "src": "index.html", "use": "@vercel/static" }
+  ],
+  "routes": [
+    { "src": "/api/auth", "dest": "/api/auth.js" },
+    { "src": "/api/plans/(.*)", "dest": "/api/plans.js" },
+    { "src": "/api/plans", "dest": "/api/plans.js" },
+    { "src": "/api/textbooks", "dest": "/api/textbooks.js" },
+    { "src": "/api/events", "dest": "/api/events.js" },
+    { "src": "/(.*)", "dest": "/index.html" }
+  ]
+}

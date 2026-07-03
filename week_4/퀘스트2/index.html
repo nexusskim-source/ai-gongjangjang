@@ -1,0 +1,648 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>🧊 우리집 냉장고</title>
+  <script src="https://cdn.tailwindcss.com/3.4.16"></script>
+  <!-- ⚠️ CDN 버전 고정. @babel/standalone 미고정 시 8.x 로 올라가 인라인 JSX 변환이 깨지고 빈 화면이 된다. -->
+  <script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone@7.23.5/babel.min.js"></script>
+  <style>
+    /* Tailwind 로 표현 어려운 부분만 */
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+    .fade-in { animation: fadeIn 0.25s ease-out; }
+  </style>
+</head>
+<body class="bg-slate-100">
+  <div id="root"></div>
+
+  <script type="text/babel">
+    // ========================================
+    // React Hooks
+    // ========================================
+    const { useState, useEffect, useCallback, useMemo } = React;
+
+    // ========================================
+    // API 설정
+    // ========================================
+    // ❌ localhost 하드코딩 금지 → 같은 origin 사용
+    const API_BASE_URL = window.location.origin + '/api';
+
+    // ========================================
+    // 분류(카테고리) 메타 정보
+    // ========================================
+    const CATEGORIES = ['채소', '육류', '유제품', '과일', '기타'];
+    const UNITS = ['개', 'g', 'ml', '봉지', '팩', '병', '통'];
+
+    const CATEGORY_STYLE = {
+      '채소':   { badge: 'bg-green-100 text-green-700 border-green-200',   emoji: '🥬' },
+      '육류':   { badge: 'bg-red-100 text-red-700 border-red-200',         emoji: '🥩' },
+      '유제품': { badge: 'bg-yellow-100 text-yellow-700 border-yellow-200', emoji: '🧀' },
+      '과일':   { badge: 'bg-pink-100 text-pink-700 border-pink-200',       emoji: '🍎' },
+      '기타':   { badge: 'bg-slate-100 text-slate-600 border-slate-200',    emoji: '🧺' },
+    };
+    const styleOf = (cat) => CATEGORY_STYLE[cat] || CATEGORY_STYLE['기타'];
+
+    // ========================================
+    // 🎨 Design System Components
+    // ========================================
+    function Button({ variant = 'primary', size = 'md', className = '', ...props }) {
+      const variants = {
+        primary: 'bg-sky-600 hover:bg-sky-700 text-white shadow-sm',
+        secondary: 'bg-white hover:bg-slate-50 text-slate-700 border border-slate-300',
+        danger: 'bg-white hover:bg-red-50 text-red-600 border border-red-200',
+        ghost: 'bg-transparent hover:bg-slate-100 text-slate-600',
+      };
+      const sizes = { sm: 'px-2.5 py-1 text-sm', md: 'px-4 py-2 text-sm', lg: 'px-5 py-3 text-base' };
+      return (
+        <button
+          className={`inline-flex items-center justify-center gap-1 rounded-lg font-medium transition-colors
+            disabled:opacity-50 disabled:cursor-not-allowed ${variants[variant]} ${sizes[size]} ${className}`}
+          {...props}
+        />
+      );
+    }
+
+    function Field({ label, children, required }) {
+      return (
+        <label className="flex flex-col gap-1 text-sm">
+          <span className="font-medium text-slate-600">
+            {label}{required && <span className="text-red-500"> *</span>}
+          </span>
+          {children}
+        </label>
+      );
+    }
+
+    const inputCls = 'rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-800 ' +
+      'focus:outline-none focus:ring-2 focus:ring-sky-400 focus:border-sky-400';
+
+    function Card({ className = '', children }) {
+      return <div className={`rounded-2xl bg-white shadow-sm ${className}`}>{children}</div>;
+    }
+
+    function Badge({ category }) {
+      const s = styleOf(category);
+      return (
+        <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-semibold ${s.badge}`}>
+          <span>{s.emoji}</span>{category}
+        </span>
+      );
+    }
+
+    function Spinner() {
+      return (
+        <svg className="h-5 w-5 animate-spin text-sky-600" viewBox="0 0 24 24" fill="none">
+          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+        </svg>
+      );
+    }
+
+    // ========================================
+    // 🧩 재료 등록 폼
+    // ========================================
+    function IngredientForm({ onSubmit, submitting }) {
+      const [name, setName] = useState('');
+      const [category, setCategory] = useState(CATEGORIES[0]);
+      const [quantity, setQuantity] = useState('1');
+      const [unit, setUnit] = useState(UNITS[0]);
+
+      const handleSubmit = async (e) => {
+        e.preventDefault();
+        if (!name.trim()) {
+          alert('재료 이름을 입력해 주세요.');
+          return;
+        }
+        const ok = await onSubmit({
+          name: name.trim(),
+          category,
+          quantity: Number(quantity) || 0,
+          unit,
+        });
+        if (ok) {
+          // 성공 시 폼 초기화 (분류/단위는 유지하면 연속 입력이 편함)
+          setName('');
+          setQuantity('1');
+        }
+      };
+
+      return (
+        <Card className="p-5">
+          <h2 className="mb-4 flex items-center gap-2 text-lg font-bold text-slate-800">
+            ➕ 재료 등록
+          </h2>
+          <form onSubmit={handleSubmit} className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5 lg:items-end">
+            <div className="sm:col-span-2 lg:col-span-2">
+              <Field label="이름" required>
+                <input
+                  className={inputCls}
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="예: 계란, 우유, 양파..."
+                  disabled={submitting}
+                />
+              </Field>
+            </div>
+
+            <Field label="분류">
+              <select className={inputCls} value={category} onChange={(e) => setCategory(e.target.value)} disabled={submitting}>
+                {CATEGORIES.map((c) => <option key={c} value={c}>{styleOf(c).emoji} {c}</option>)}
+              </select>
+            </Field>
+
+            <Field label="수량">
+              <input
+                type="number" min="0" step="1"
+                className={inputCls}
+                value={quantity}
+                onChange={(e) => setQuantity(e.target.value)}
+                disabled={submitting}
+              />
+            </Field>
+
+            <Field label="단위">
+              <select className={inputCls} value={unit} onChange={(e) => setUnit(e.target.value)} disabled={submitting}>
+                {UNITS.map((u) => <option key={u} value={u}>{u}</option>)}
+              </select>
+            </Field>
+
+            <div className="sm:col-span-2 lg:col-span-5">
+              <Button type="submit" size="lg" className="w-full sm:w-auto" disabled={submitting}>
+                {submitting ? <><Spinner /> 등록 중...</> : '냉장고에 넣기'}
+              </Button>
+            </div>
+          </form>
+        </Card>
+      );
+    }
+
+    // ========================================
+    // 🧩 재료 카드 아이템
+    // ========================================
+    function formatDate(iso) {
+      if (!iso) return '';
+      const d = new Date(iso);
+      if (isNaN(d.getTime())) return '';
+      const p = (n) => String(n).padStart(2, '0');
+      return `${d.getFullYear()}.${p(d.getMonth() + 1)}.${p(d.getDate())}`;
+    }
+
+    function IngredientItem({ item, onDelete, deleting }) {
+      return (
+        <div className="fade-in flex items-center justify-between gap-3 rounded-xl border border-slate-100 bg-white px-4 py-3 shadow-sm">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <span className="truncate text-base font-semibold text-slate-800">{item.name}</span>
+              <span className="whitespace-nowrap text-sm font-medium text-slate-500">
+                {item.quantity}{item.unit}
+              </span>
+            </div>
+            <div className="mt-1 flex items-center gap-2 text-xs text-slate-400">
+              <Badge category={item.category} />
+              {item.addedAt && <span>등록 {formatDate(item.addedAt)}</span>}
+            </div>
+          </div>
+          <Button variant="danger" size="sm" onClick={() => onDelete(item)} disabled={deleting}>
+            {deleting ? '삭제 중' : '삭제'}
+          </Button>
+        </div>
+      );
+    }
+
+    // ========================================
+    // 🧩 재료 목록 (분류별 그룹핑)
+    // ========================================
+    function IngredientList({ items, onDelete, deletingId }) {
+      const grouped = useMemo(() => {
+        const map = {};
+        for (const it of items) {
+          const key = CATEGORIES.includes(it.category) ? it.category : '기타';
+          (map[key] = map[key] || []).push(it);
+        }
+        return map;
+      }, [items]);
+
+      const orderedCats = CATEGORIES.filter((c) => grouped[c] && grouped[c].length);
+
+      if (items.length === 0) {
+        return (
+          <Card className="flex flex-col items-center justify-center gap-2 py-16 text-center">
+            <div className="text-5xl">🧊</div>
+            <p className="text-lg font-semibold text-slate-700">냉장고가 비어있어요</p>
+            <p className="text-sm text-slate-400">위 폼에서 재료를 추가해 보세요.</p>
+          </Card>
+        );
+      }
+
+      return (
+        <div className="space-y-6">
+          {orderedCats.map((cat) => (
+            <div key={cat}>
+              <div className="mb-2 flex items-center gap-2">
+                <Badge category={cat} />
+                <span className="text-sm text-slate-400">{grouped[cat].length}개</span>
+              </div>
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                {grouped[cat].map((it) => (
+                  <IngredientItem
+                    key={it.id}
+                    item={it}
+                    onDelete={onDelete}
+                    deleting={deletingId === it.id}
+                  />
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      );
+    }
+
+    // ========================================
+    // 🧩 냉장고 화면 (재료 등록/목록)
+    // ========================================
+    function FridgeView() {
+      const [items, setItems] = useState([]);
+      const [loading, setLoading] = useState(true);
+      const [error, setError] = useState(null);
+      const [submitting, setSubmitting] = useState(false);
+      const [deletingId, setDeletingId] = useState(null);
+
+      // 목록 불러오기
+      const fetchItems = useCallback(async () => {
+        setLoading(true);
+        setError(null);
+        try {
+          const res = await fetch(`${API_BASE_URL}/ingredients`);
+          if (!res.ok) throw new Error(`서버 응답 오류 (${res.status})`);
+          const data = await res.json();
+          setItems(Array.isArray(data) ? data : []);
+        } catch (e) {
+          setError(e.message || '재료를 불러오지 못했습니다.');
+        } finally {
+          setLoading(false);
+        }
+      }, []);
+
+      useEffect(() => { fetchItems(); }, [fetchItems]);
+
+      // 등록
+      const handleAdd = useCallback(async (payload) => {
+        setSubmitting(true);
+        try {
+          const res = await fetch(`${API_BASE_URL}/ingredients`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          });
+          if (!res.ok) throw new Error(`등록 실패 (${res.status})`);
+          await fetchItems();
+          return true;
+        } catch (e) {
+          alert(e.message || '등록에 실패했습니다.');
+          return false;
+        } finally {
+          setSubmitting(false);
+        }
+      }, [fetchItems]);
+
+      // 삭제
+      const handleDelete = useCallback(async (item) => {
+        if (!window.confirm(`'${item.name}' 을(를) 삭제할까요?`)) return;
+        setDeletingId(item.id);
+        try {
+          const res = await fetch(`${API_BASE_URL}/ingredients/${item.id}`, { method: 'DELETE' });
+          if (!res.ok) throw new Error(`삭제 실패 (${res.status})`);
+          await fetchItems();
+        } catch (e) {
+          alert(e.message || '삭제에 실패했습니다.');
+        } finally {
+          setDeletingId(null);
+        }
+      }, [fetchItems]);
+
+      const total = items.length;
+
+      return (
+        <div>
+          <p className="mb-4 text-sm text-slate-500">
+            냉장고 속 재료를 등록하고 관리하세요. {!loading && !error && `현재 ${total}개 보관 중`}
+          </p>
+
+          {/* 등록 폼 */}
+          <div className="mb-8">
+            <IngredientForm onSubmit={handleAdd} submitting={submitting} />
+          </div>
+
+          {/* 목록 영역 */}
+          <section>
+            <div className="mb-3 flex items-center justify-between">
+              <h2 className="text-lg font-bold text-slate-800">📋 보관 중인 재료</h2>
+              <Button variant="secondary" size="sm" onClick={fetchItems} disabled={loading}>
+                {loading ? <Spinner /> : '↻ 새로고침'}
+              </Button>
+            </div>
+
+            {loading && (
+              <Card className="flex items-center justify-center gap-2 py-16 text-slate-500">
+                <Spinner /> 불러오는 중...
+              </Card>
+            )}
+
+            {!loading && error && (
+              <Card className="flex flex-col items-center gap-3 border border-red-100 py-12 text-center">
+                <div className="text-4xl">⚠️</div>
+                <p className="font-semibold text-red-600">{error}</p>
+                <p className="text-sm text-slate-400">서버(localhost:3000)가 실행 중인지 확인해 주세요.</p>
+                <Button variant="secondary" onClick={fetchItems}>다시 시도</Button>
+              </Card>
+            )}
+
+            {!loading && !error && (
+              <IngredientList items={items} onDelete={handleDelete} deletingId={deletingId} />
+            )}
+          </section>
+        </div>
+      );
+    }
+
+    // ========================================
+    // 🧩 레시피 작성 폼
+    // ========================================
+    function RecipeForm({ onSubmit, submitting }) {
+      const [title, setTitle] = useState('');
+      const [ingredients, setIngredients] = useState('');
+      const [steps, setSteps] = useState('');
+
+      const handleSubmit = async (e) => {
+        e.preventDefault();
+        if (!title.trim()) {
+          alert('요리명을 입력해 주세요.');
+          return;
+        }
+        const ok = await onSubmit({
+          title: title.trim(),
+          ingredients: ingredients.trim(),
+          steps: steps.trim(),
+        });
+        if (ok) {
+          setTitle('');
+          setIngredients('');
+          setSteps('');
+        }
+      };
+
+      const taCls = inputCls + ' min-h-[90px] resize-y leading-relaxed';
+
+      return (
+        <Card className="p-5">
+          <h2 className="mb-4 flex items-center gap-2 text-lg font-bold text-slate-800">
+            ✍️ 레시피 작성
+          </h2>
+          <form onSubmit={handleSubmit} className="grid grid-cols-1 gap-4">
+            <Field label="요리명" required>
+              <input
+                className={inputCls}
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                placeholder="예: 김치볶음밥, 계란말이..."
+                disabled={submitting}
+              />
+            </Field>
+
+            <Field label="재료">
+              <textarea
+                className={taCls}
+                value={ingredients}
+                onChange={(e) => setIngredients(e.target.value)}
+                placeholder="예: 밥 1공기, 김치 1컵, 계란 2개, 대파 약간..."
+                disabled={submitting}
+              />
+            </Field>
+
+            <Field label="조리법">
+              <textarea
+                className={taCls}
+                value={steps}
+                onChange={(e) => setSteps(e.target.value)}
+                placeholder={'예:\n1. 팬에 기름을 두르고 김치를 볶는다.\n2. 밥을 넣고 함께 볶는다.\n3. 계란 프라이를 올려 완성.'}
+                disabled={submitting}
+              />
+            </Field>
+
+            <div>
+              <Button type="submit" size="lg" className="w-full sm:w-auto" disabled={submitting}>
+                {submitting ? <><Spinner /> 저장 중...</> : '레시피 저장'}
+              </Button>
+            </div>
+          </form>
+        </Card>
+      );
+    }
+
+    // ========================================
+    // 🧩 레시피 카드
+    // ========================================
+    function RecipeItem({ recipe, onDelete, deleting }) {
+      return (
+        <Card className="fade-in p-5">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <h3 className="flex items-center gap-2 text-lg font-bold text-slate-800">
+                🍽️ {recipe.title}
+              </h3>
+              {recipe.createdAt && (
+                <p className="mt-0.5 text-xs text-slate-400">작성 {formatDate(recipe.createdAt)}</p>
+              )}
+            </div>
+            <Button variant="danger" size="sm" onClick={() => onDelete(recipe)} disabled={deleting}>
+              {deleting ? '삭제 중' : '삭제'}
+            </Button>
+          </div>
+
+          {recipe.ingredients && (
+            <div className="mt-4">
+              <p className="mb-1 text-xs font-semibold text-slate-500">🧂 재료</p>
+              <p className="whitespace-pre-wrap rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-700">
+                {recipe.ingredients}
+              </p>
+            </div>
+          )}
+
+          {recipe.steps && (
+            <div className="mt-3">
+              <p className="mb-1 text-xs font-semibold text-slate-500">👩‍🍳 조리법</p>
+              <p className="whitespace-pre-wrap rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-700">
+                {recipe.steps}
+              </p>
+            </div>
+          )}
+        </Card>
+      );
+    }
+
+    // ========================================
+    // 🧩 레시피 화면 (작성/목록)
+    // ========================================
+    function RecipeView() {
+      const [recipes, setRecipes] = useState([]);
+      const [loading, setLoading] = useState(true);
+      const [error, setError] = useState(null);
+      const [submitting, setSubmitting] = useState(false);
+      const [deletingId, setDeletingId] = useState(null);
+
+      const fetchRecipes = useCallback(async () => {
+        setLoading(true);
+        setError(null);
+        try {
+          const res = await fetch(`${API_BASE_URL}/recipes`);
+          if (!res.ok) throw new Error(`서버 응답 오류 (${res.status})`);
+          const data = await res.json();
+          setRecipes(Array.isArray(data) ? data : []);
+        } catch (e) {
+          setError(e.message || '레시피를 불러오지 못했습니다.');
+        } finally {
+          setLoading(false);
+        }
+      }, []);
+
+      useEffect(() => { fetchRecipes(); }, [fetchRecipes]);
+
+      const handleAdd = useCallback(async (payload) => {
+        setSubmitting(true);
+        try {
+          const res = await fetch(`${API_BASE_URL}/recipes`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          });
+          if (!res.ok) throw new Error(`저장 실패 (${res.status})`);
+          await fetchRecipes();
+          return true;
+        } catch (e) {
+          alert(e.message || '저장에 실패했습니다.');
+          return false;
+        } finally {
+          setSubmitting(false);
+        }
+      }, [fetchRecipes]);
+
+      const handleDelete = useCallback(async (recipe) => {
+        if (!window.confirm(`'${recipe.title}' 레시피를 삭제할까요?`)) return;
+        setDeletingId(recipe.id);
+        try {
+          const res = await fetch(`${API_BASE_URL}/recipes/${recipe.id}`, { method: 'DELETE' });
+          if (!res.ok) throw new Error(`삭제 실패 (${res.status})`);
+          await fetchRecipes();
+        } catch (e) {
+          alert(e.message || '삭제에 실패했습니다.');
+        } finally {
+          setDeletingId(null);
+        }
+      }, [fetchRecipes]);
+
+      return (
+        <div>
+          <p className="mb-4 text-sm text-slate-500">
+            나만의 레시피를 직접 작성하고 저장하세요. {!loading && !error && `저장된 레시피 ${recipes.length}개`}
+          </p>
+
+          <div className="mb-8">
+            <RecipeForm onSubmit={handleAdd} submitting={submitting} />
+          </div>
+
+          <section>
+            <div className="mb-3 flex items-center justify-between">
+              <h2 className="text-lg font-bold text-slate-800">📖 내 레시피</h2>
+              <Button variant="secondary" size="sm" onClick={fetchRecipes} disabled={loading}>
+                {loading ? <Spinner /> : '↻ 새로고침'}
+              </Button>
+            </div>
+
+            {loading && (
+              <Card className="flex items-center justify-center gap-2 py-16 text-slate-500">
+                <Spinner /> 불러오는 중...
+              </Card>
+            )}
+
+            {!loading && error && (
+              <Card className="flex flex-col items-center gap-3 border border-red-100 py-12 text-center">
+                <div className="text-4xl">⚠️</div>
+                <p className="font-semibold text-red-600">{error}</p>
+                <p className="text-sm text-slate-400">서버(localhost:3000)가 실행 중인지 확인해 주세요.</p>
+                <Button variant="secondary" onClick={fetchRecipes}>다시 시도</Button>
+              </Card>
+            )}
+
+            {!loading && !error && recipes.length === 0 && (
+              <Card className="flex flex-col items-center justify-center gap-2 py-16 text-center">
+                <div className="text-5xl">📝</div>
+                <p className="text-lg font-semibold text-slate-700">아직 저장된 레시피가 없어요</p>
+                <p className="text-sm text-slate-400">위 폼에서 나만의 레시피를 작성해 보세요.</p>
+              </Card>
+            )}
+
+            {!loading && !error && recipes.length > 0 && (
+              <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+                {recipes.map((r) => (
+                  <RecipeItem key={r.id} recipe={r} onDelete={handleDelete} deleting={deletingId === r.id} />
+                ))}
+              </div>
+            )}
+          </section>
+        </div>
+      );
+    }
+
+    // ========================================
+    // 🚀 App (탭: 냉장고 / 레시피)
+    // ========================================
+    function App() {
+      const [tab, setTab] = useState('fridge');
+
+      const TabButton = ({ id, children }) => (
+        <button
+          onClick={() => setTab(id)}
+          className={`rounded-lg px-4 py-2 text-sm font-semibold transition-colors ${
+            tab === id
+              ? 'bg-sky-600 text-white shadow-sm'
+              : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200'
+          }`}
+        >
+          {children}
+        </button>
+      );
+
+      return (
+        <div className="mx-auto max-w-4xl px-4 py-8">
+          <header className="mb-5">
+            <h1 className="flex items-center gap-2 text-2xl font-extrabold text-slate-800 sm:text-3xl">
+              🧊 우리집 냉장고 & 레시피
+            </h1>
+          </header>
+
+          {/* 탭 */}
+          <div className="mb-6 flex gap-2">
+            <TabButton id="fridge">🧊 냉장고</TabButton>
+            <TabButton id="recipe">📖 레시피</TabButton>
+          </div>
+
+          {tab === 'fridge' ? <FridgeView /> : <RecipeView />}
+
+          <footer className="mt-10 text-center text-xs text-slate-400">
+            🧊 우리집 냉장고 & 레시피 · React + Tailwind 단일 파일
+          </footer>
+        </div>
+      );
+    }
+
+    // ========================================
+    // Rendering
+    // ========================================
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>

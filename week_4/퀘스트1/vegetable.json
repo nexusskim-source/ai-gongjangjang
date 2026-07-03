@@ -1,0 +1,21 @@
+{
+  "name": "vegetable",
+  "nameKo": "채소",
+  "category": "채소류",
+  "description": "잎·줄기·뿌리 등을 먹는 식물성 식재료. 식이섬유와 비타민, 무기질이 풍부하고 열량이 낮다.",
+  "examples": ["시금치", "브로콜리", "당근", "양배추", "파프리카"],
+  "servingSize": "100g",
+  "nutritionPer100g": {
+    "calories_kcal": 35,
+    "protein_g": 2.2,
+    "fat_g": 0.3,
+    "carbohydrate_g": 6.5,
+    "dietaryFiber_g": 2.6,
+    "sodium_mg": 30,
+    "potassium_mg": 280,
+    "vitaminC_mg": 30
+  },
+  "keyNutrients": ["식이섬유", "비타민 A(베타카로틴)", "비타민 C", "엽산", "칼륨"],
+  "storage": "냉장 보관(0~4℃), 신문지·키친타월로 감싸 습기 조절",
+  "shelfLifeDays": 7
+}

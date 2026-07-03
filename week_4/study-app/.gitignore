@@ -1,0 +1,8 @@
+node_modules/
+study-plans.json
+textbooks.json
+events.json
+users.json
+
+.vercel
+.env*

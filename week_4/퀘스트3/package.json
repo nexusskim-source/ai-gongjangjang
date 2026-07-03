@@ -1,0 +1,15 @@
+{
+  "name": "fridge-recipe-db",
+  "version": "1.0.0",
+  "description": "냉장고 재료 & 레시피 관리 앱 (Supabase PostgreSQL 저장)",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.110.0",
+    "dotenv": "^16.6.1",
+    "openai": "^6.45.0",
+    "pg": "^8.22.0"
+  }
+}

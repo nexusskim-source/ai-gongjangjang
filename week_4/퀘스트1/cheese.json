@@ -1,0 +1,20 @@
+{
+  "name": "cheese",
+  "nameKo": "치즈",
+  "category": "유제품",
+  "description": "우유를 응고·발효시켜 만든 유제품. 칼슘과 단백질이 농축되어 있으나 지방과 나트륨도 높다.",
+  "examples": ["체다", "모짜렐라", "고다", "파르메산"],
+  "servingSize": "100g",
+  "nutritionPer100g": {
+    "calories_kcal": 402,
+    "protein_g": 25.0,
+    "fat_g": 33.0,
+    "carbohydrate_g": 1.3,
+    "cholesterol_mg": 105,
+    "sodium_mg": 621,
+    "calcium_mg": 721
+  },
+  "keyNutrients": ["칼슘", "단백질", "비타민 A", "비타민 B12", "인"],
+  "storage": "냉장 보관(0~10℃), 밀봉하여 건조·냄새 흡착 방지",
+  "shelfLifeDays": 60
+}

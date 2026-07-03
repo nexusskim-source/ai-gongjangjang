@@ -1,0 +1,20 @@
+{
+  "name": "egg",
+  "nameKo": "달걀",
+  "category": "단백질",
+  "description": "닭이 낳은 알. 완전식품으로 불릴 만큼 필수 아미노산이 고루 들어 있다.",
+  "servingSize": "100g (약 2개)",
+  "nutritionPer100g": {
+    "calories_kcal": 143,
+    "protein_g": 12.6,
+    "fat_g": 9.5,
+    "carbohydrate_g": 0.7,
+    "cholesterol_mg": 372,
+    "sodium_mg": 142,
+    "calcium_mg": 56,
+    "iron_mg": 1.8
+  },
+  "keyNutrients": ["비타민 B12", "비타민 D", "콜린", "셀레늄"],
+  "storage": "냉장 보관(0~5℃), 뾰족한 쪽을 아래로",
+  "shelfLifeDays": 30
+}
