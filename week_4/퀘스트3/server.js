@@ -44,6 +44,7 @@ function rowToRecipe(r) {
     title: r.title,
     ingredients: r.ingredients || '',
     steps: r.steps || '',
+    source: r.source || 'manual',
     createdAt: r.created_at ? new Date(r.created_at).toISOString() : '',
   };
 }
@@ -67,9 +68,14 @@ async function initDb() {
       title       TEXT NOT NULL,
       ingredients TEXT NOT NULL DEFAULT '',
       steps       TEXT NOT NULL DEFAULT '',
+      source      TEXT NOT NULL DEFAULT 'manual',
       created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
     )
   `);
+  // 기존 테이블에 source 컬럼이 없으면 추가 (수동/AI 구분)
+  await pool.query(
+    `ALTER TABLE recipes ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'manual'`
+  );
 }
 
 // ---------- 응답/요청 헬퍼 ----------
@@ -282,12 +288,12 @@ async function handleRecipeGenerate(req, res) {
       throw new Error('AI 응답에 title/ingredients/steps 가 누락되었습니다.');
     }
 
-    // DB 저장은 하지 않는다. 프론트가 POST /api/recipes 로 저장.
-    return sendJSON(res, 200, {
-      title: String(recipe.title),
-      ingredients: String(recipe.ingredients),
-      steps: String(recipe.steps),
-    });
+    // AI가 생성한 레시피를 바로 DB에 저장 (source='ai') 후 저장된 행을 반환
+    const { rows: saved } = await pool.query(
+      "INSERT INTO recipes (title, ingredients, steps, source) VALUES ($1,$2,$3,'ai') RETURNING *",
+      [String(recipe.title), String(recipe.ingredients), String(recipe.steps)]
+    );
+    return sendJSON(res, 201, rowToRecipe(saved[0]));
   } catch (err) {
     console.error('AI 응답 파싱 실패:', err);
     return sendJSON(res, 500, {
