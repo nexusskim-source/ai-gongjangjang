@@ -1,0 +1,13 @@
+{
+  "name": "salary-stats",
+  "version": "1.0.0",
+  "description": "익명 월급/지출 통계 (Supabase)",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.6.1",
+    "pg": "^8.22.0"
+  }
+}

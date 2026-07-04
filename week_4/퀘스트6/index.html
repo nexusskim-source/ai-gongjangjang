@@ -1,0 +1,488 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>💰 익명 월급·지출 통계</title>
+  <script src="https://cdn.tailwindcss.com/3.4.16"></script>
+  <!-- ⚠️ CDN 버전 고정 필수. @babel/standalone 미고정 시 8.x 로 올라가 인라인 JSX 변환이 깨진다. Babel 은 7.x 고정. -->
+  <script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone@7.23.5/babel.min.js"></script>
+  <style>
+    @keyframes fadeInUp { from { opacity:0; transform:translateY(12px);} to { opacity:1; transform:translateY(0);} }
+    .fade-in-up { animation: fadeInUp .4s ease both; }
+    /* 부드러운 막대 성장 */
+    .bar-grow { transition: width .7s cubic-bezier(.22,1,.36,1), height .7s cubic-bezier(.22,1,.36,1); }
+  </style>
+</head>
+<body class="bg-slate-100">
+  <div id="root"></div>
+
+  <script type="text/babel">
+    // ========================================
+    // React Hooks
+    // ========================================
+    const { useState, useEffect, useMemo, useCallback } = React;
+
+    const API_BASE_URL = window.location.origin + '/api';
+
+    const JOB_CATEGORIES = ['개발', '디자인', '기획', '마케팅', '영업', '기타'];
+    const EXPENSE_FIELDS = [
+      { key: 'food',         label: '식비',   emoji: '🍚' },
+      { key: 'housing',      label: '주거',   emoji: '🏠' },
+      { key: 'transport',    label: '교통',   emoji: '🚌' },
+      { key: 'subscription', label: '구독료', emoji: '📺' },
+      { key: 'etc',          label: '기타',   emoji: '🧾' },
+    ];
+
+    // ========================================
+    // 유틸
+    // ========================================
+    // 숫자 안전 변환
+    const num = (v) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
+    // 천단위 콤마
+    const fmt = (v) => num(v).toLocaleString('ko-KR', { maximumFractionDigits: 1 });
+    // 만원 표기
+    const won = (v) => `${fmt(v)}만원`;
+
+    // ========================================
+    // 🎨 Design System
+    // ========================================
+    function Button({ children, variant = 'primary', size = 'md', className = '', ...rest }) {
+      const variants = {
+        primary:   'bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm',
+        secondary: 'bg-white hover:bg-slate-50 text-slate-700 border border-slate-300',
+        ghost:     'bg-transparent hover:bg-slate-100 text-slate-600',
+      };
+      const sizes = { sm: 'px-3 py-1.5 text-sm', md: 'px-4 py-2.5 text-sm', lg: 'px-6 py-3 text-base' };
+      return (
+        <button
+          className={`inline-flex items-center justify-center gap-2 rounded-xl font-semibold transition
+            disabled:opacity-50 disabled:cursor-not-allowed ${variants[variant]} ${sizes[size]} ${className}`}
+          {...rest}
+        >{children}</button>
+      );
+    }
+
+    function NumberField({ label, emoji, value, onChange, placeholder, suffix = '만원', required }) {
+      return (
+        <label className="block">
+          <span className="mb-1.5 flex items-center gap-1.5 text-sm font-medium text-slate-700">
+            {emoji && <span>{emoji}</span>}{label}
+            {required && <span className="text-rose-500">*</span>}
+          </span>
+          <div className="relative">
+            <input
+              type="number" inputMode="decimal" min="0"
+              value={value} onChange={(e) => onChange(e.target.value)}
+              placeholder={placeholder}
+              className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 pr-14 text-slate-800
+                outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200"
+            />
+            <span className="pointer-events-none absolute right-3.5 top-1/2 -translate-y-1/2 text-sm text-slate-400">{suffix}</span>
+          </div>
+        </label>
+      );
+    }
+
+    function Card({ children, className = '' }) {
+      return <div className={`rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200/70 ${className}`}>{children}</div>;
+    }
+
+    function SectionTitle({ children, hint }) {
+      return (
+        <div className="mb-4">
+          <h3 className="text-base font-bold text-slate-800">{children}</h3>
+          {hint && <p className="mt-0.5 text-xs text-slate-400">{hint}</p>}
+        </div>
+      );
+    }
+
+    function CategoryPicker({ options, value, onChange }) {
+      return (
+        <div className="flex flex-wrap gap-2">
+          {options.map((opt) => {
+            const active = value === opt;
+            return (
+              <button
+                type="button" key={opt} onClick={() => onChange(opt)}
+                className={`rounded-full px-4 py-2 text-sm font-medium transition
+                  ${active
+                    ? 'bg-indigo-600 text-white shadow-sm ring-2 ring-indigo-300'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+              >{opt}</button>
+            );
+          })}
+        </div>
+      );
+    }
+
+    // ========================================
+    // 📊 차트 (Tailwind div 막대)
+    // ========================================
+    // 세로 히스토그램 — 내 구간 강조
+    function SalaryHistogram({ distribution, myLabel }) {
+      const dist = Array.isArray(distribution) ? distribution : [];
+      const maxCount = Math.max(1, ...dist.map((d) => num(d.count)));
+      if (dist.length === 0) {
+        return <p className="py-8 text-center text-sm text-slate-400">아직 분포 데이터가 없어요.</p>;
+      }
+      return (
+        <div className="flex items-end gap-1.5 sm:gap-2" style={{ height: '180px' }}>
+          {dist.map((d, i) => {
+            const isMine = myLabel != null && d.label === myLabel;
+            const h = (num(d.count) / maxCount) * 100;
+            return (
+              <div key={i} className="flex flex-1 flex-col items-center justify-end">
+                {isMine && (
+                  <span className="mb-1 whitespace-nowrap rounded-full bg-rose-500 px-1.5 py-0.5 text-[10px] font-bold text-white">
+                    내 위치
+                  </span>
+                )}
+                <span className="mb-1 text-[11px] font-semibold text-slate-500">{num(d.count)}</span>
+                <div
+                  className={`bar-grow w-full rounded-t-md ${isMine ? 'bg-rose-500' : 'bg-indigo-400'}`}
+                  style={{ height: `${Math.max(h, num(d.count) > 0 ? 6 : 2)}%` }}
+                  title={`${d.label}: ${num(d.count)}명`}
+                />
+                <span className={`mt-1.5 text-center text-[10px] leading-tight ${isMine ? 'font-bold text-rose-600' : 'text-slate-400'}`}>
+                  {d.label}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      );
+    }
+
+    // 가로 비교 막대 (평균 vs 나)
+    function CompareBar({ label, emoji, avg, mine, max }) {
+      const safeMax = Math.max(1, num(max));
+      const avgW = (num(avg) / safeMax) * 100;
+      const mineW = (num(mine) / safeMax) * 100;
+      const diff = num(mine) - num(avg);
+      const over = diff > 0;
+      return (
+        <div className="py-2.5">
+          <div className="mb-1.5 flex items-center justify-between text-sm">
+            <span className="flex items-center gap-1.5 font-medium text-slate-700">
+              {emoji && <span>{emoji}</span>}{label}
+            </span>
+            <span className={`text-xs font-semibold ${Math.abs(diff) < 0.001 ? 'text-slate-400' : over ? 'text-rose-500' : 'text-emerald-600'}`}>
+              {Math.abs(diff) < 0.001 ? '평균과 동일' : `${over ? '+' : '−'}${fmt(Math.abs(diff))}만원`}
+            </span>
+          </div>
+          {/* 평균 */}
+          <div className="mb-1 flex items-center gap-2">
+            <span className="w-10 shrink-0 text-right text-[11px] text-slate-400">평균</span>
+            <div className="h-3 flex-1 overflow-hidden rounded-full bg-slate-100">
+              <div className="bar-grow h-full rounded-full bg-slate-400" style={{ width: `${avgW}%` }} />
+            </div>
+            <span className="w-16 shrink-0 text-[11px] text-slate-500">{won(avg)}</span>
+          </div>
+          {/* 나 */}
+          <div className="flex items-center gap-2">
+            <span className="w-10 shrink-0 text-right text-[11px] font-semibold text-indigo-500">나</span>
+            <div className="h-3 flex-1 overflow-hidden rounded-full bg-slate-100">
+              <div className={`bar-grow h-full rounded-full ${over ? 'bg-rose-400' : 'bg-emerald-400'}`} style={{ width: `${mineW}%` }} />
+            </div>
+            <span className="w-16 shrink-0 text-[11px] font-semibold text-slate-700">{won(mine)}</span>
+          </div>
+        </div>
+      );
+    }
+
+    // ========================================
+    // 🧩 헤더
+    // ========================================
+    function Header() {
+      return (
+        <header className="mb-6 text-center">
+          <h1 className="text-2xl font-extrabold tracking-tight text-slate-800 sm:text-3xl">💰 익명 월급·지출 통계</h1>
+          <p className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700 ring-1 ring-emerald-200">
+            🔒 이름·이메일 등 개인정보는 전혀 수집하지 않아요. 안심하고 입력하세요.
+          </p>
+        </header>
+      );
+    }
+
+    // ========================================
+    // 📄 입력 폼
+    // ========================================
+    function SubmitForm({ onSubmitted }) {
+      const [salary, setSalary] = useState('');
+      const [jobCategory, setJobCategory] = useState('개발');
+      const [years, setYears] = useState('');
+      const [expenses, setExpenses] = useState({ food: '', housing: '', transport: '', subscription: '', etc: '' });
+      const [loading, setLoading] = useState(false);
+      const [error, setError] = useState('');
+      const [warn, setWarn] = useState('');
+
+      const setExpense = (key, val) => setExpenses((p) => ({ ...p, [key]: val }));
+
+      const totalExpense = useMemo(
+        () => EXPENSE_FIELDS.reduce((s, f) => s + num(expenses[f.key]), 0),
+        [expenses]
+      );
+
+      const handleSubmit = useCallback(async (e) => {
+        e.preventDefault();
+        setError('');
+        if (salary === '' || num(salary) <= 0) {
+          setWarn('월급을 입력해 주세요. (필수)');
+          return;
+        }
+        setWarn('');
+        setLoading(true);
+        try {
+          const payload = {
+            salary: num(salary),
+            jobCategory,
+            years: num(years),
+            expenses: {
+              food: num(expenses.food),
+              housing: num(expenses.housing),
+              transport: num(expenses.transport),
+              subscription: num(expenses.subscription),
+              etc: num(expenses.etc),
+            },
+          };
+          const res = await fetch(`${API_BASE_URL}/submissions`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          });
+          if (!res.ok) throw new Error(`서버 오류 (${res.status})`);
+          const data = await res.json();
+          onSubmitted(data);
+        } catch (err) {
+          setError(err.message || '제출 중 문제가 발생했어요. 서버 상태를 확인해 주세요.');
+        } finally {
+          setLoading(false);
+        }
+      }, [salary, jobCategory, years, expenses, onSubmitted]);
+
+      return (
+        <form onSubmit={handleSubmit} className="space-y-5">
+          <Card>
+            <SectionTitle hint="내 월급이 상위 몇 %인지 바로 알려드려요.">💵 월급 · 직군 · 연차</SectionTitle>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <NumberField label="월급" emoji="💰" value={salary} onChange={(v) => { setSalary(v); if (warn) setWarn(''); }} placeholder="예: 350" required />
+              <NumberField label="연차" emoji="📅" value={years} onChange={setYears} placeholder="예: 3" suffix="년차" />
+            </div>
+            <div className="mt-4">
+              <span className="mb-2 block text-sm font-medium text-slate-700">🧑‍💻 직군</span>
+              <CategoryPicker options={JOB_CATEGORIES} value={jobCategory} onChange={setJobCategory} />
+            </div>
+          </Card>
+
+          <Card>
+            <SectionTitle hint="한 달 기준, 대략적인 금액이면 충분해요.">🧾 카테고리별 월 지출</SectionTitle>
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {EXPENSE_FIELDS.map((f) => (
+                <NumberField key={f.key} label={f.label} emoji={f.emoji}
+                  value={expenses[f.key]} onChange={(v) => setExpense(f.key, v)} placeholder="0" />
+              ))}
+            </div>
+            <div className="mt-4 flex items-center justify-between rounded-xl bg-slate-50 px-4 py-3">
+              <span className="text-sm font-medium text-slate-600">내 총 월지출</span>
+              <span className="text-lg font-bold text-slate-800">{won(totalExpense)}</span>
+            </div>
+          </Card>
+
+          {warn && (
+            <div className="rounded-xl bg-amber-50 px-4 py-3 text-sm font-medium text-amber-700 ring-1 ring-amber-200">⚠️ {warn}</div>
+          )}
+          {error && (
+            <div className="rounded-xl bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700 ring-1 ring-rose-200">❌ {error}</div>
+          )}
+
+          <Button type="submit" size="lg" className="w-full" disabled={loading}>
+            {loading ? '제출 중…' : '제출하고 통계 보기 →'}
+          </Button>
+        </form>
+      );
+    }
+
+    // ========================================
+    // 📄 결과 화면
+    // ========================================
+    function StatCard({ title, value, sub, accent = 'text-slate-800' }) {
+      return (
+        <Card className="text-center">
+          <p className="text-xs font-medium text-slate-400">{title}</p>
+          <p className={`mt-1 text-2xl font-extrabold ${accent}`}>{value}</p>
+          {sub && <p className="mt-1 text-xs text-slate-400">{sub}</p>}
+        </Card>
+      );
+    }
+
+    function ResultView({ result, onReset }) {
+      const { submission, myTopPercent } = result;
+      // 직군 필터로 통계 다시 로드
+      const [filterJob, setFilterJob] = useState('전체');
+      const [stats, setStats] = useState(result.stats || null);
+      const [loading, setLoading] = useState(false);
+      const [error, setError] = useState('');
+
+      useEffect(() => {
+        let cancelled = false;
+        async function load() {
+          setLoading(true); setError('');
+          try {
+            const q = filterJob === '전체' ? '' : `?jobCategory=${encodeURIComponent(filterJob)}`;
+            const res = await fetch(`${API_BASE_URL}/stats${q}`);
+            if (!res.ok) throw new Error(`통계 로드 실패 (${res.status})`);
+            const data = await res.json();
+            if (!cancelled) setStats(data);
+          } catch (err) {
+            if (!cancelled) setError(err.message || '통계를 불러오지 못했어요.');
+          } finally {
+            if (!cancelled) setLoading(false);
+          }
+        }
+        // 최초(전체)엔 이미 result.stats 가 있으므로 재요청 생략
+        if (filterJob === '전체' && stats === result.stats) return;
+        load();
+        return () => { cancelled = true; };
+      }, [filterJob]);
+
+      const count = num(stats?.count);
+      const avgSalary = num(stats?.avgSalary);
+      const salaryDiff = num(submission?.salary) - avgSalary;
+
+      // 내 월급이 속한 히스토그램 구간 label 찾기 (서버가 주는 min/max 우선 사용)
+      const myLabel = useMemo(() => {
+        const dist = stats?.salaryDistribution;
+        if (!Array.isArray(dist)) return null;
+        const s = num(submission?.salary);
+        for (const d of dist) {
+          // 서버 응답에 min/max 가 있으면 그대로 사용 (max=null 이면 상한 없음)
+          if (d.min != null || d.max != null) {
+            const lo = d.min != null ? num(d.min) : -Infinity;
+            const hi = d.max != null ? num(d.max) : Infinity;
+            if (s >= lo && s <= hi) return d.label;
+            continue;
+          }
+          // 폴백: 라벨 파싱 "300~399"
+          const m = String(d.label).match(/(\d+)\s*[~\-–]\s*(\d+)/);
+          if (m) { const lo = num(m[1]), hi = num(m[2]); if (s >= lo && s <= hi) return d.label; }
+        }
+        return null;
+      }, [stats, submission]);
+
+      const catAvg = stats?.categoryAverages || {};
+      const myExp = submission?.expenses || {};
+      // 카테고리 비교 막대 공통 최대값
+      const catMax = useMemo(() => {
+        let m = 1;
+        for (const f of EXPENSE_FIELDS) m = Math.max(m, num(catAvg[f.key]), num(myExp[f.key]));
+        return m;
+      }, [catAvg, myExp]);
+
+      const myTotalExpense = num(submission?.totalExpense) ||
+        EXPENSE_FIELDS.reduce((s, f) => s + num(myExp[f.key]), 0);
+      const avgTotalExpense = num(stats?.avgTotalExpense);
+
+      const salaryMax = Math.max(1, num(submission?.salary), avgSalary);
+
+      return (
+        <div className="space-y-5 fade-in-up">
+          {/* 내 위치 히어로 */}
+          <Card className="bg-gradient-to-br from-indigo-600 to-violet-600 text-center text-white ring-0">
+            <p className="text-sm font-medium text-indigo-100">당신의 월급은</p>
+            <p className="my-1 text-5xl font-black tracking-tight">
+              상위 {myTopPercent != null ? fmt(myTopPercent) : '—'}<span className="text-3xl">%</span>
+            </p>
+            <p className="text-sm text-indigo-100">
+              전체 참여자 {fmt(count)}명 중 · 내 월급 <b className="text-white">{won(submission?.salary)}</b>
+            </p>
+          </Card>
+
+          {/* 요약 통계 */}
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+            <StatCard title="전체 평균 월급" value={count > 0 ? won(avgSalary) : '—'} sub={`참여자 ${fmt(count)}명`} />
+            <StatCard
+              title="평균 대비 내 월급"
+              value={`${salaryDiff >= 0 ? '+' : '−'}${fmt(Math.abs(salaryDiff))}만원`}
+              sub={salaryDiff >= 0 ? '평균보다 많이 받아요' : '평균보다 적게 받아요'}
+              accent={salaryDiff >= 0 ? 'text-rose-500' : 'text-emerald-600'}
+            />
+            <StatCard
+              title="내 총 월지출"
+              value={won(myTotalExpense)}
+              sub={avgTotalExpense > 0 ? `평균 ${won(avgTotalExpense)}` : '평균 데이터 없음'}
+            />
+          </div>
+
+          {/* 직군 필터 */}
+          <Card>
+            <SectionTitle hint="직군을 선택하면 해당 직군 통계와 비교해요.">🔎 직군 필터</SectionTitle>
+            <CategoryPicker options={['전체', ...JOB_CATEGORIES]} value={filterJob} onChange={setFilterJob} />
+            {loading && <p className="mt-3 text-sm text-slate-400">통계를 불러오는 중…</p>}
+            {error && <p className="mt-3 text-sm text-rose-500">❌ {error}</p>}
+            {!loading && !error && count === 0 && (
+              <p className="mt-3 text-sm text-slate-400">이 조건의 참여자가 아직 없어요.</p>
+            )}
+          </Card>
+
+          {/* 월급 분포 히스토그램 */}
+          <Card>
+            <SectionTitle hint={filterJob === '전체' ? '전체 참여자 기준' : `${filterJob} 직군 기준`}>
+              📊 월급 분포 {filterJob !== '전체' && <span className="text-indigo-500">· {filterJob}</span>}
+            </SectionTitle>
+            <SalaryHistogram distribution={stats?.salaryDistribution} myLabel={filterJob === '전체' ? myLabel : null} />
+          </Card>
+
+          {/* 카테고리별 지출 비교 */}
+          <Card>
+            <SectionTitle hint="평균(회색) vs 나(색상). 평균보다 많이 쓰면 빨강, 적게 쓰면 초록.">
+              💳 카테고리별 지출 비교
+            </SectionTitle>
+            {count > 0 ? (
+              <>
+                {EXPENSE_FIELDS.map((f) => (
+                  <CompareBar key={f.key} label={f.label} emoji={f.emoji}
+                    avg={catAvg[f.key]} mine={myExp[f.key]} max={catMax} />
+                ))}
+                <div className="mt-3 border-t border-slate-100 pt-3">
+                  <CompareBar label="총 지출" emoji="🧮" avg={avgTotalExpense} mine={myTotalExpense}
+                    max={Math.max(1, avgTotalExpense, myTotalExpense)} />
+                </div>
+              </>
+            ) : (
+              <p className="py-6 text-center text-sm text-slate-400">비교할 지출 데이터가 아직 없어요.</p>
+            )}
+          </Card>
+
+          <Button variant="secondary" size="lg" className="w-full" onClick={onReset}>
+            ↩️ 다시 입력하기
+          </Button>
+        </div>
+      );
+    }
+
+    // ========================================
+    // 🚀 App
+    // ========================================
+    function App() {
+      const [result, setResult] = useState(null);
+
+      return (
+        <div className="mx-auto min-h-screen max-w-2xl px-4 py-8">
+          <Header />
+          {result
+            ? <ResultView result={result} onReset={() => setResult(null)} />
+            : <SubmitForm onSubmitted={setResult} />}
+          <footer className="mt-10 text-center text-xs text-slate-400">
+            익명 통계 · 개인정보 미수집 · 금액 단위는 모두 만원입니다.
+          </footer>
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>
