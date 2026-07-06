@@ -1,0 +1,581 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>우리집 가계부</title>
+  <script src="https://cdn.tailwindcss.com/3.4.16"></script>
+  <!-- ⚠️ Babel standalone 은 반드시 7.23.5 로 고정한다. 최신(8.x)으로 올라가면
+       type="text/babel" 인라인 변환이 깨져 빈 화면이 뜬다. -->
+  <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone@7.23.5/babel.min.js"></script>
+  <style>
+    /* Tailwind 으로 표현하기 어려운 부드러운 애니메이션 */
+    @keyframes fadeInUp {
+      from { opacity: 0; transform: translateY(8px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    .animate-fade-in-up { animation: fadeInUp 0.3s ease-out both; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .animate-spin-slow { animation: spin 0.8s linear infinite; }
+    @keyframes growBar {
+      from { transform: scaleX(0); }
+      to   { transform: scaleX(1); }
+    }
+    .animate-grow-bar { transform-origin: left; animation: growBar 0.6s ease-out both; }
+    body { -webkit-font-smoothing: antialiased; }
+  </style>
+</head>
+<body class="bg-slate-100 text-slate-800">
+  <div id="root"></div>
+
+  <script type="text/babel">
+    // ========================================
+    // React Hooks
+    // ========================================
+    const { useState, useEffect, useMemo, useCallback } = React;
+
+    // ========================================
+    // 설정 (API) — 같은 오리진 상대경로 사용 (localhost 하드코딩 금지)
+    // ========================================
+    const API_BASE_URL = '/api';
+
+    // ========================================
+    // 상수 / 유틸
+    // ========================================
+    const CATEGORIES = {
+      expense: ['식비', '교통', '주거', '구독료', '경조사', '쇼핑', '의료', '기타'],
+      income: ['급여', '용돈', '부수입', '기타'],
+    };
+
+    // 카테고리별 이모지 (표시용)
+    const CATEGORY_ICON = {
+      식비: '🍚', 교통: '🚌', 주거: '🏠', 구독료: '📺', 경조사: '🎁',
+      쇼핑: '🛍️', 의료: '💊', 급여: '💼', 용돈: '💰', 부수입: '📈', 기타: '📌',
+    };
+
+    // 지출 카테고리별 막대 색상 (순환)
+    const BAR_COLORS = [
+      'bg-rose-400', 'bg-orange-400', 'bg-amber-400', 'bg-emerald-400',
+      'bg-sky-400', 'bg-indigo-400', 'bg-violet-400', 'bg-pink-400',
+    ];
+
+    function formatWon(n) {
+      const num = Number(n) || 0;
+      return num.toLocaleString('ko-KR') + '원';
+    }
+
+    function todayStr() {
+      const d = new Date();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      return `${d.getFullYear()}-${m}-${day}`;
+    }
+
+    function formatDateLabel(dateStr) {
+      // 'YYYY-MM-DD' → 'M월 D일 (요일)'
+      const parts = (dateStr || '').split('-');
+      if (parts.length !== 3) return dateStr;
+      const d = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+      if (isNaN(d.getTime())) return dateStr;
+      const days = ['일', '월', '화', '수', '목', '금', '토'];
+      return `${Number(parts[1])}월 ${Number(parts[2])}일 (${days[d.getDay()]})`;
+    }
+
+    // ========================================
+    // 🎨 Design System Components
+    // ========================================
+    function Button({ variant = 'primary', size = 'md', className = '', children, ...props }) {
+      const variants = {
+        primary: 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm shadow-indigo-600/20 disabled:bg-indigo-300',
+        secondary: 'bg-white hover:bg-slate-50 text-slate-700 ring-1 ring-slate-200',
+        danger: 'bg-rose-500 hover:bg-rose-600 text-white',
+        ghost: 'bg-transparent hover:bg-slate-100 text-slate-500',
+      };
+      const sizes = {
+        sm: 'px-2.5 py-1 text-xs',
+        md: 'px-4 py-2 text-sm',
+        lg: 'px-5 py-3 text-base',
+      };
+      return (
+        <button
+          className={`inline-flex items-center justify-center gap-1.5 rounded-xl font-semibold transition-all duration-150 active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-70 ${variants[variant]} ${sizes[size]} ${className}`}
+          {...props}
+        >
+          {children}
+        </button>
+      );
+    }
+
+    function Field({ label, children, className = '' }) {
+      return (
+        <label className={`flex flex-col gap-1.5 ${className}`}>
+          <span className="text-xs font-semibold text-slate-500">{label}</span>
+          {children}
+        </label>
+      );
+    }
+
+    const inputBase =
+      'w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-800 placeholder:text-slate-400 focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 outline-none transition';
+
+    function Card({ className = '', children }) {
+      return (
+        <div className={`rounded-2xl bg-white shadow-sm shadow-slate-200/60 ring-1 ring-slate-100 ${className}`}>
+          {children}
+        </div>
+      );
+    }
+
+    function Spinner({ className = '' }) {
+      return (
+        <span className={`inline-block h-5 w-5 rounded-full border-2 border-slate-200 border-t-indigo-500 animate-spin-slow ${className}`} />
+      );
+    }
+
+    // ========================================
+    // 🧩 요약 카드 (총 수입/지출/잔액)
+    // ========================================
+    function SummaryCards({ income, expense, balance }) {
+      const items = [
+        { label: '총 수입', value: income, tone: 'text-blue-600', bg: 'from-blue-50 to-blue-100/40', icon: '↑' },
+        { label: '총 지출', value: expense, tone: 'text-rose-600', bg: 'from-rose-50 to-rose-100/40', icon: '↓' },
+        {
+          label: '잔액',
+          value: balance,
+          tone: balance >= 0 ? 'text-emerald-600' : 'text-rose-600',
+          bg: 'from-emerald-50 to-emerald-100/40',
+          icon: '＝',
+        },
+      ];
+      return (
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          {items.map((it) => (
+            <div
+              key={it.label}
+              className={`rounded-2xl bg-gradient-to-br ${it.bg} p-4 ring-1 ring-slate-100`}
+            >
+              <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-500">
+                <span className={it.tone}>{it.icon}</span>
+                {it.label}
+              </div>
+              <div className={`mt-1.5 text-xl font-extrabold tracking-tight sm:text-2xl ${it.tone}`}>
+                {formatWon(it.value)}
+              </div>
+            </div>
+          ))}
+        </div>
+      );
+    }
+
+    // ========================================
+    // 📝 등록 폼
+    // ========================================
+    function TransactionForm({ onAdded }) {
+      const [type, setType] = useState('expense');
+      const [date, setDate] = useState(todayStr());
+      const [amount, setAmount] = useState('');
+      const [category, setCategory] = useState(CATEGORIES.expense[0]);
+      const [memo, setMemo] = useState('');
+      const [submitting, setSubmitting] = useState(false);
+      const [error, setError] = useState('');
+
+      // 토글 변경 시 카테고리 옵션 리셋
+      const handleType = (nextType) => {
+        setType(nextType);
+        setCategory(CATEGORIES[nextType][0]);
+      };
+
+      const handleSubmit = async (e) => {
+        e.preventDefault();
+        setError('');
+        const amountNum = parseInt(amount, 10);
+        if (!date) return setError('날짜를 입력해 주세요.');
+        if (!amountNum || amountNum <= 0) return setError('금액을 올바르게 입력해 주세요.');
+
+        setSubmitting(true);
+        try {
+          const res = await fetch(`${API_BASE_URL}/transactions`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ type, date, amount: amountNum, category, memo: memo.trim() }),
+          });
+          if (!res.ok) throw new Error('등록에 실패했습니다.');
+          const data = await res.json();
+          if (data && data.success === false) throw new Error('등록에 실패했습니다.');
+          // 폼 초기화 (날짜/타입은 유지하면 연속 입력에 편함)
+          setAmount('');
+          setMemo('');
+          onAdded && onAdded();
+        } catch (err) {
+          setError(err.message || '등록 중 오류가 발생했습니다.');
+        } finally {
+          setSubmitting(false);
+        }
+      };
+
+      const isExpense = type === 'expense';
+
+      return (
+        <Card className="p-5">
+          <h2 className="mb-4 text-base font-bold text-slate-800">거래 등록</h2>
+          <form onSubmit={handleSubmit} className="space-y-4">
+            {/* 수입/지출 토글 */}
+            <div className="grid grid-cols-2 gap-2 rounded-xl bg-slate-100 p-1">
+              <button
+                type="button"
+                onClick={() => handleType('expense')}
+                className={`rounded-lg py-2 text-sm font-bold transition ${
+                  isExpense ? 'bg-white text-rose-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'
+                }`}
+              >
+                지출
+              </button>
+              <button
+                type="button"
+                onClick={() => handleType('income')}
+                className={`rounded-lg py-2 text-sm font-bold transition ${
+                  !isExpense ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'
+                }`}
+              >
+                수입
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <Field label="날짜">
+                <input
+                  type="date"
+                  value={date}
+                  onChange={(e) => setDate(e.target.value)}
+                  className={inputBase}
+                />
+              </Field>
+
+              <Field label="카테고리">
+                <select
+                  value={category}
+                  onChange={(e) => setCategory(e.target.value)}
+                  className={inputBase}
+                >
+                  {CATEGORIES[type].map((c) => (
+                    <option key={c} value={c}>
+                      {CATEGORY_ICON[c] ? CATEGORY_ICON[c] + ' ' : ''}{c}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+            </div>
+
+            <Field label="금액 (원)">
+              <div className="relative">
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  min="0"
+                  value={amount}
+                  onChange={(e) => setAmount(e.target.value)}
+                  placeholder="0"
+                  className={`${inputBase} pr-16 text-right font-semibold`}
+                />
+                <span className="pointer-events-none absolute right-3.5 top-1/2 -translate-y-1/2 text-sm text-slate-400">
+                  {amount ? formatWon(parseInt(amount, 10) || 0) : '원'}
+                </span>
+              </div>
+            </Field>
+
+            <Field label="메모 (선택)">
+              <input
+                type="text"
+                value={memo}
+                onChange={(e) => setMemo(e.target.value)}
+                placeholder="예) 점심 김밥, 지하철 등"
+                maxLength={100}
+                className={inputBase}
+              />
+            </Field>
+
+            {error && (
+              <p className="rounded-lg bg-rose-50 px-3 py-2 text-xs font-medium text-rose-600">
+                {error}
+              </p>
+            )}
+
+            <Button
+              type="submit"
+              size="lg"
+              disabled={submitting}
+              className={`w-full ${isExpense ? '!bg-rose-500 hover:!bg-rose-600' : '!bg-blue-600 hover:!bg-blue-700'}`}
+            >
+              {submitting ? <Spinner className="!border-white/40 !border-t-white" /> : `${isExpense ? '지출' : '수입'} 등록하기`}
+            </Button>
+          </form>
+        </Card>
+      );
+    }
+
+    // ========================================
+    // 📋 내역 목록
+    // ========================================
+    function TransactionItem({ tx, onDelete, deleting }) {
+      const isIncome = tx.type === 'income';
+      return (
+        <li className="animate-fade-in-up flex items-center gap-3 px-4 py-3 hover:bg-slate-50/70 transition">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-100 text-lg">
+            {CATEGORY_ICON[tx.category] || '📌'}
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2">
+              <span className="truncate text-sm font-semibold text-slate-800">{tx.category}</span>
+              <span
+                className={`shrink-0 rounded-md px-1.5 py-0.5 text-[10px] font-bold ${
+                  isIncome ? 'bg-blue-50 text-blue-600' : 'bg-rose-50 text-rose-600'
+                }`}
+              >
+                {isIncome ? '수입' : '지출'}
+              </span>
+            </div>
+            <div className="mt-0.5 flex items-center gap-1.5 text-xs text-slate-400">
+              <span>{formatDateLabel(tx.date)}</span>
+              {tx.memo && <span className="truncate">· {tx.memo}</span>}
+            </div>
+          </div>
+          <div className={`shrink-0 text-right text-sm font-extrabold ${isIncome ? 'text-blue-600' : 'text-rose-600'}`}>
+            {isIncome ? '+' : '-'}{formatWon(tx.amount)}
+          </div>
+          <button
+            onClick={() => onDelete(tx.id)}
+            disabled={deleting}
+            aria-label="삭제"
+            className="shrink-0 rounded-lg p-1.5 text-slate-300 hover:bg-rose-50 hover:text-rose-500 transition disabled:opacity-50"
+          >
+            {deleting ? (
+              <Spinner className="!h-4 !w-4" />
+            ) : (
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            )}
+          </button>
+        </li>
+      );
+    }
+
+    function TransactionList({ transactions, loading, error, onDelete, deletingId, onRetry }) {
+      return (
+        <Card className="overflow-hidden">
+          <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
+            <h2 className="text-base font-bold text-slate-800">거래 내역</h2>
+            <span className="text-xs font-medium text-slate-400">{transactions.length}건</span>
+          </div>
+
+          {loading ? (
+            <div className="flex flex-col items-center justify-center gap-3 py-16 text-slate-400">
+              <Spinner className="!h-7 !w-7" />
+              <p className="text-sm">불러오는 중...</p>
+            </div>
+          ) : error ? (
+            <div className="flex flex-col items-center justify-center gap-3 py-16">
+              <p className="text-sm text-rose-500">{error}</p>
+              <Button variant="secondary" size="sm" onClick={onRetry}>다시 시도</Button>
+            </div>
+          ) : transactions.length === 0 ? (
+            <div className="flex flex-col items-center justify-center gap-2 py-16 text-slate-400">
+              <span className="text-3xl">🧾</span>
+              <p className="text-sm">아직 등록된 거래가 없어요.</p>
+              <p className="text-xs">왼쪽에서 첫 거래를 등록해 보세요.</p>
+            </div>
+          ) : (
+            <ul className="divide-y divide-slate-50">
+              {transactions.map((tx) => (
+                <TransactionItem
+                  key={tx.id}
+                  tx={tx}
+                  onDelete={onDelete}
+                  deleting={deletingId === tx.id}
+                />
+              ))}
+            </ul>
+          )}
+        </Card>
+      );
+    }
+
+    // ========================================
+    // 📊 카테고리별 지출 합계
+    // ========================================
+    function CategoryBreakdown({ byCategory }) {
+      // 지출 카테고리만 추출, 금액 내림차순
+      const expenseRows = useMemo(() => {
+        return (byCategory || [])
+          .filter((r) => r.type === 'expense' && Number(r.total) > 0)
+          .sort((a, b) => Number(b.total) - Number(a.total));
+      }, [byCategory]);
+
+      const maxTotal = expenseRows.length ? Number(expenseRows[0].total) : 0;
+
+      return (
+        <Card className="p-5">
+          <h2 className="mb-4 text-base font-bold text-slate-800">카테고리별 지출</h2>
+          {expenseRows.length === 0 ? (
+            <div className="py-8 text-center text-sm text-slate-400">지출 내역이 아직 없어요.</div>
+          ) : (
+            <ul className="space-y-3">
+              {expenseRows.map((row, idx) => {
+                const total = Number(row.total);
+                const pct = maxTotal > 0 ? Math.round((total / maxTotal) * 100) : 0;
+                return (
+                  <li key={row.category}>
+                    <div className="mb-1 flex items-center justify-between text-sm">
+                      <span className="font-semibold text-slate-700">
+                        {CATEGORY_ICON[row.category] ? CATEGORY_ICON[row.category] + ' ' : ''}
+                        {row.category}
+                      </span>
+                      <span className="font-bold text-slate-800">{formatWon(total)}</span>
+                    </div>
+                    <div className="h-2.5 w-full overflow-hidden rounded-full bg-slate-100">
+                      <div
+                        className={`animate-grow-bar h-full rounded-full ${BAR_COLORS[idx % BAR_COLORS.length]}`}
+                        style={{ width: `${Math.max(pct, 4)}%` }}
+                      />
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </Card>
+      );
+    }
+
+    // ========================================
+    // 🚀 App
+    // ========================================
+    function App() {
+      const [transactions, setTransactions] = useState([]);
+      const [summary, setSummary] = useState({ income: 0, expense: 0, balance: 0, byCategory: [] });
+      const [loading, setLoading] = useState(true);
+      const [error, setError] = useState('');
+      const [deletingId, setDeletingId] = useState(null);
+
+      const loadData = useCallback(async () => {
+        setLoading(true);
+        setError('');
+        try {
+          const [txRes, sumRes] = await Promise.all([
+            fetch(`${API_BASE_URL}/transactions`),
+            fetch(`${API_BASE_URL}/summary`),
+          ]);
+          if (!txRes.ok) throw new Error('거래 내역을 불러오지 못했습니다.');
+          const txData = await txRes.json();
+          const sumData = sumRes.ok ? await sumRes.json() : null;
+
+          const list = Array.isArray(txData) ? txData : (txData.transactions || []);
+          setTransactions(list);
+
+          if (sumData) {
+            setSummary({
+              income: sumData.income || 0,
+              expense: sumData.expense || 0,
+              balance: sumData.balance != null ? sumData.balance : (sumData.income || 0) - (sumData.expense || 0),
+              byCategory: sumData.byCategory || [],
+            });
+          } else {
+            // summary 실패 시 목록에서 직접 계산 (폴백)
+            setSummary(computeSummary(list));
+          }
+        } catch (err) {
+          setError(err.message || '데이터를 불러오는 중 오류가 발생했습니다.');
+        } finally {
+          setLoading(false);
+        }
+      }, []);
+
+      // 목록에서 요약 직접 계산 (summary API 폴백)
+      function computeSummary(list) {
+        let income = 0, expense = 0;
+        const map = {};
+        list.forEach((tx) => {
+          const amt = Number(tx.amount) || 0;
+          if (tx.type === 'income') income += amt;
+          else expense += amt;
+          const key = tx.category + '|' + tx.type;
+          if (!map[key]) map[key] = { category: tx.category, type: tx.type, total: 0 };
+          map[key].total += amt;
+        });
+        return { income, expense, balance: income - expense, byCategory: Object.values(map) };
+      }
+
+      useEffect(() => {
+        loadData();
+      }, [loadData]);
+
+      const handleDelete = async (id) => {
+        setDeletingId(id);
+        try {
+          const res = await fetch(`${API_BASE_URL}/transactions`, {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id }),
+          });
+          if (!res.ok) throw new Error('삭제 실패');
+          await loadData();
+        } catch (err) {
+          alert('삭제 중 오류가 발생했습니다.');
+        } finally {
+          setDeletingId(null);
+        }
+      };
+
+      return (
+        <div className="min-h-screen">
+          {/* 헤더 */}
+          <header className="border-b border-slate-200 bg-white/80 backdrop-blur">
+            <div className="mx-auto flex max-w-5xl items-center gap-3 px-4 py-4 sm:px-6">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-600 text-lg shadow-sm shadow-indigo-600/30">
+                💰
+              </div>
+              <div>
+                <h1 className="text-lg font-extrabold tracking-tight text-slate-800">우리집 가계부</h1>
+                <p className="text-xs text-slate-400">수입과 지출을 한눈에 관리하세요</p>
+              </div>
+            </div>
+          </header>
+
+          <main className="mx-auto max-w-5xl px-4 py-6 sm:px-6">
+            {/* 요약 카드 */}
+            <SummaryCards income={summary.income} expense={summary.expense} balance={summary.balance} />
+
+            {/* 본문: 좌(폼+카테고리) / 우(내역) */}
+            <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,380px)_1fr]">
+              <div className="space-y-6">
+                <TransactionForm onAdded={loadData} />
+                <CategoryBreakdown byCategory={summary.byCategory} />
+              </div>
+
+              <TransactionList
+                transactions={transactions}
+                loading={loading}
+                error={error}
+                onDelete={handleDelete}
+                deletingId={deletingId}
+                onRetry={loadData}
+              />
+            </div>
+
+            <footer className="mt-10 pb-6 text-center text-xs text-slate-300">
+              데이터는 서버(Supabase)에 저장됩니다 · 새로고침해도 유지돼요
+            </footer>
+          </main>
+        </div>
+      );
+    }
+
+    // ========================================
+    // Rendering
+    // ========================================
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>
