@@ -6,6 +6,7 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const { Pool } = require('pg');
+const auth = require('./auth');
 
 const PORT = process.env.PORT || 3000;
 const VALID_STATUS = ['진행 전', '진행 중', '완료'];
@@ -32,7 +33,7 @@ function rowToTodo(r) {
   };
 }
 
-// 테이블 생성 + (비어있으면) 초기 데이터 삽입
+// 테이블 생성 (todos + users, todos.user_id)
 async function initDb() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS todos (
@@ -44,24 +45,8 @@ async function initDb() {
       created_at TIMESTAMPTZ NOT NULL DEFAULT now()
     )
   `);
-
-  const { rows } = await pool.query('SELECT COUNT(*)::int AS c FROM todos');
-  if (rows[0].c === 0) {
-    const seed = [
-      ['장보기', '2026-06-30', '진행 전', '우유, 계란, 두부,쌀국수 사기'],
-      ['운동하기', '2026-06-28', '진행 중', '헬스장 30분 유산소'],
-      ['보고서 작성', '2026-06-29', '진행 전', '4주차 실습 정리 문서'],
-      ['책 읽기', '2026-07-05', '진행 전', '클린 코드 3장까지'],
-      ['친구 약속', '2026-06-27', '완료', '저녁 7시 강남역'],
-    ];
-    for (const [title, due, status, memo] of seed) {
-      await pool.query(
-        'INSERT INTO todos (title, due_date, status, memo) VALUES ($1, $2, $3, $4)',
-        [title, due, status, memo]
-      );
-    }
-    console.log('초기 할 일 5건을 DB에 삽입했습니다.');
-  }
+  // users 테이블 + todos.user_id 컬럼 (사용자별 분리)
+  await auth.ensureAuthSchema(pool);
 }
 
 // 입력 정규화
@@ -103,59 +88,83 @@ const server = http.createServer(async (req, res) => {
   const url = req.url.split('?')[0];
 
   try {
-    // 목록
-    if (req.method === 'GET' && url === '/api/todos') {
-      const { rows } = await pool.query('SELECT * FROM todos ORDER BY id ASC');
-      return sendJson(res, 200, rows.map(rowToTodo));
-    }
-
-    // 추가
-    if (req.method === 'POST' && url === '/api/todos') {
-      const todo = normalize(await readJsonBody(req));
-      if (!todo.title) return sendJson(res, 400, { success: false, message: '제목은 필수입니다.' });
-      const { rows } = await pool.query(
-        'INSERT INTO todos (title, due_date, status, memo) VALUES ($1,$2,$3,$4) RETURNING *',
-        [todo.title, todo.dueDate, todo.status, todo.memo]
-      );
-      return sendJson(res, 201, { success: true, ...rowToTodo(rows[0]) });
-    }
-
-    // 수정 (부분 수정: 전달된 필드만 갱신)
-    if (req.method === 'PUT' && url === '/api/todos') {
-      const body = await readJsonBody(req);
-      const id = Number(body.id);
-      if (!id) return sendJson(res, 400, { success: false, message: '유효하지 않은 id 입니다.' });
-
-      const cur = await pool.query('SELECT * FROM todos WHERE id = $1', [id]);
-      if (cur.rows.length === 0) {
-        return sendJson(res, 404, { success: false, message: '해당 할 일을 찾을 수 없습니다.' });
+    // ---------- 인증 (회원가입 / 로그인) ----------
+    if (req.method === 'POST' && (url === '/api/auth/signup' || url === '/api/auth/login')) {
+      try {
+        const body = await readJsonBody(req);
+        const result = url.endsWith('/signup')
+          ? await auth.signup(pool, body)
+          : await auth.login(pool, body);
+        return sendJson(res, url.endsWith('/signup') ? 201 : 200, result);
+      } catch (err) {
+        const status = err.status || 500;
+        if (status >= 500) console.error('인증 처리 오류:', err);
+        return sendJson(res, status, { success: false, message: err.message || '서버 오류' });
       }
-      const prev = rowToTodo(cur.rows[0]);
-      const merged = normalize({
-        title: body.title !== undefined ? body.title : prev.title,
-        dueDate: body.dueDate !== undefined ? body.dueDate : prev.dueDate,
-        status: body.status !== undefined ? body.status : prev.status,
-        memo: body.memo !== undefined ? body.memo : prev.memo,
-      });
-      if (!merged.title) return sendJson(res, 400, { success: false, message: '제목은 비울 수 없습니다.' });
-
-      const { rows } = await pool.query(
-        'UPDATE todos SET title=$1, due_date=$2, status=$3, memo=$4 WHERE id=$5 RETURNING *',
-        [merged.title, merged.dueDate, merged.status, merged.memo, id]
-      );
-      return sendJson(res, 200, { success: true, ...rowToTodo(rows[0]) });
     }
 
-    // 삭제
-    if (req.method === 'DELETE' && url === '/api/todos') {
-      const body = await readJsonBody(req);
-      const id = Number(body.id);
-      if (!id) return sendJson(res, 400, { success: false, message: '유효하지 않은 id 입니다.' });
-      const { rowCount } = await pool.query('DELETE FROM todos WHERE id = $1', [id]);
-      if (rowCount === 0) {
-        return sendJson(res, 404, { success: false, message: '해당 할 일을 찾을 수 없습니다.' });
+    // ---------- 할 일 API: 여기부터는 로그인 필수 ----------
+    if (url === '/api/todos') {
+      const user = auth.getUserFromReq(req);
+      if (!user) return sendJson(res, 401, { success: false, message: '로그인이 필요합니다.' });
+
+      // 목록 (본인 것만)
+      if (req.method === 'GET') {
+        const { rows } = await pool.query(
+          'SELECT * FROM todos WHERE user_id = $1 ORDER BY id ASC',
+          [user.id]
+        );
+        return sendJson(res, 200, rows.map(rowToTodo));
       }
-      return sendJson(res, 200, { success: true, id });
+
+      // 추가 (본인 소유로)
+      if (req.method === 'POST') {
+        const todo = normalize(await readJsonBody(req));
+        if (!todo.title) return sendJson(res, 400, { success: false, message: '제목은 필수입니다.' });
+        const { rows } = await pool.query(
+          'INSERT INTO todos (title, due_date, status, memo, user_id) VALUES ($1,$2,$3,$4,$5) RETURNING *',
+          [todo.title, todo.dueDate, todo.status, todo.memo, user.id]
+        );
+        return sendJson(res, 201, { success: true, ...rowToTodo(rows[0]) });
+      }
+
+      // 수정 (본인 것만, 부분 수정)
+      if (req.method === 'PUT') {
+        const body = await readJsonBody(req);
+        const id = Number(body.id);
+        if (!id) return sendJson(res, 400, { success: false, message: '유효하지 않은 id 입니다.' });
+
+        const cur = await pool.query('SELECT * FROM todos WHERE id = $1 AND user_id = $2', [id, user.id]);
+        if (cur.rows.length === 0) {
+          return sendJson(res, 404, { success: false, message: '해당 할 일을 찾을 수 없습니다.' });
+        }
+        const prev = rowToTodo(cur.rows[0]);
+        const merged = normalize({
+          title: body.title !== undefined ? body.title : prev.title,
+          dueDate: body.dueDate !== undefined ? body.dueDate : prev.dueDate,
+          status: body.status !== undefined ? body.status : prev.status,
+          memo: body.memo !== undefined ? body.memo : prev.memo,
+        });
+        if (!merged.title) return sendJson(res, 400, { success: false, message: '제목은 비울 수 없습니다.' });
+
+        const { rows } = await pool.query(
+          'UPDATE todos SET title=$1, due_date=$2, status=$3, memo=$4 WHERE id=$5 AND user_id=$6 RETURNING *',
+          [merged.title, merged.dueDate, merged.status, merged.memo, id, user.id]
+        );
+        return sendJson(res, 200, { success: true, ...rowToTodo(rows[0]) });
+      }
+
+      // 삭제 (본인 것만)
+      if (req.method === 'DELETE') {
+        const body = await readJsonBody(req);
+        const id = Number(body.id);
+        if (!id) return sendJson(res, 400, { success: false, message: '유효하지 않은 id 입니다.' });
+        const { rowCount } = await pool.query('DELETE FROM todos WHERE id = $1 AND user_id = $2', [id, user.id]);
+        if (rowCount === 0) {
+          return sendJson(res, 404, { success: false, message: '해당 할 일을 찾을 수 없습니다.' });
+        }
+        return sendJson(res, 200, { success: true, id });
+      }
     }
 
     // 정적 파일: 루트 → index.html

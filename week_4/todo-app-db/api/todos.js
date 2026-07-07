@@ -3,6 +3,7 @@
 // 할 일을 PostgreSQL(Supabase)에 저장한다. (pg 패키지 사용)
 
 const { Pool } = require('pg');
+const auth = require('../auth');
 
 if (!process.env.DATABASE_URL) {
   throw new Error('환경변수 DATABASE_URL 이 설정되지 않았습니다. (Vercel 프로젝트 환경변수 확인)');
@@ -44,23 +45,8 @@ function ensureDb() {
           created_at TIMESTAMPTZ NOT NULL DEFAULT now()
         )
       `);
-
-      const { rows } = await pool.query('SELECT COUNT(*)::int AS c FROM todos');
-      if (rows[0].c === 0) {
-        const seed = [
-          ['장보기', '2026-06-30', '진행 전', '우유, 계란, 두부,쌀국수 사기'],
-          ['운동하기', '2026-06-28', '진행 중', '헬스장 30분 유산소'],
-          ['보고서 작성', '2026-06-29', '진행 전', '4주차 실습 정리 문서'],
-          ['책 읽기', '2026-07-05', '진행 전', '클린 코드 3장까지'],
-          ['친구 약속', '2026-06-27', '완료', '저녁 7시 강남역'],
-        ];
-        for (const [title, due, status, memo] of seed) {
-          await pool.query(
-            'INSERT INTO todos (title, due_date, status, memo) VALUES ($1, $2, $3, $4)',
-            [title, due, status, memo]
-          );
-        }
-      }
+      // users 테이블 + todos.user_id 컬럼 (사용자별 분리)
+      await auth.ensureAuthSchema(pool);
     })().catch((err) => {
       // 실패 시 다음 호출에서 다시 시도할 수 있도록 캐시를 비운다.
       initPromise = null;
@@ -98,30 +84,39 @@ module.exports = async (req, res) => {
   try {
     await ensureDb();
 
-    // 목록
+    // 🔐 인증 필수: 유효한 JWT 가 없으면 401
+    const user = auth.getUserFromReq(req);
+    if (!user) {
+      return res.status(401).json({ success: false, message: '로그인이 필요합니다.' });
+    }
+
+    // 목록 (본인 것만)
     if (req.method === 'GET') {
-      const { rows } = await pool.query('SELECT * FROM todos ORDER BY id ASC');
+      const { rows } = await pool.query(
+        'SELECT * FROM todos WHERE user_id = $1 ORDER BY id ASC',
+        [user.id]
+      );
       return res.status(200).json(rows.map(rowToTodo));
     }
 
-    // 추가
+    // 추가 (본인 소유로)
     if (req.method === 'POST') {
       const todo = normalize(parseBody(req));
       if (!todo.title) return res.status(400).json({ success: false, message: '제목은 필수입니다.' });
       const { rows } = await pool.query(
-        'INSERT INTO todos (title, due_date, status, memo) VALUES ($1,$2,$3,$4) RETURNING *',
-        [todo.title, todo.dueDate, todo.status, todo.memo]
+        'INSERT INTO todos (title, due_date, status, memo, user_id) VALUES ($1,$2,$3,$4,$5) RETURNING *',
+        [todo.title, todo.dueDate, todo.status, todo.memo, user.id]
       );
       return res.status(201).json({ success: true, ...rowToTodo(rows[0]) });
     }
 
-    // 수정 (부분 수정: 전달된 필드만 갱신)
+    // 수정 (본인 것만, 부분 수정)
     if (req.method === 'PUT') {
       const body = parseBody(req);
       const id = Number(body.id);
       if (!id) return res.status(400).json({ success: false, message: '유효하지 않은 id 입니다.' });
 
-      const cur = await pool.query('SELECT * FROM todos WHERE id = $1', [id]);
+      const cur = await pool.query('SELECT * FROM todos WHERE id = $1 AND user_id = $2', [id, user.id]);
       if (cur.rows.length === 0) {
         return res.status(404).json({ success: false, message: '해당 할 일을 찾을 수 없습니다.' });
       }
@@ -135,18 +130,18 @@ module.exports = async (req, res) => {
       if (!merged.title) return res.status(400).json({ success: false, message: '제목은 비울 수 없습니다.' });
 
       const { rows } = await pool.query(
-        'UPDATE todos SET title=$1, due_date=$2, status=$3, memo=$4 WHERE id=$5 RETURNING *',
-        [merged.title, merged.dueDate, merged.status, merged.memo, id]
+        'UPDATE todos SET title=$1, due_date=$2, status=$3, memo=$4 WHERE id=$5 AND user_id=$6 RETURNING *',
+        [merged.title, merged.dueDate, merged.status, merged.memo, id, user.id]
       );
       return res.status(200).json({ success: true, ...rowToTodo(rows[0]) });
     }
 
-    // 삭제
+    // 삭제 (본인 것만)
     if (req.method === 'DELETE') {
       const body = parseBody(req);
       const id = Number(body.id);
       if (!id) return res.status(400).json({ success: false, message: '유효하지 않은 id 입니다.' });
-      const { rowCount } = await pool.query('DELETE FROM todos WHERE id = $1', [id]);
+      const { rowCount } = await pool.query('DELETE FROM todos WHERE id = $1 AND user_id = $2', [id, user.id]);
       if (rowCount === 0) {
         return res.status(404).json({ success: false, message: '해당 할 일을 찾을 수 없습니다.' });
       }

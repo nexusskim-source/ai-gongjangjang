@@ -1,0 +1,18 @@
+
+week_4\퀘스트2 폴더에 만들었던  재료 관리 앱을 기반으로 시작해라.
+
+week_4\퀘스트6폴더에 작성해라
+
+ @"single-react-dev (agent)"
+
+  @"single-server-specialist (agent)"
+
+1. 사용자가 **익명으로 월급, 월 지출, 직군/연차** 등을 입력하세요
+2. 제출하면 **전체 평균, 분포, 내 위치 (상위 몇 %)**를 보여주세요
+3. **카테고리별 평균 지출** (식비, 주거, 교통, 구독료 등)도 비교할 수 있게 하세요
+4. 모든 데이터는 **DB (Supabase)에 익명으로 저장**하세요
+
+postgresql://postgres.wykboralwuhzihmhfoft:RMFLDNA22!!@aws-1-us-east-1.pooler.supabase.com:6543/postgres
+
+
+todo-app-db 이거 DB URL 을 postgresql://postgres.wykboralwuhzihmhfoft:RMFLDNA22!!@aws-1-us-ast-1.pooler.supabase.com:6543/postgres

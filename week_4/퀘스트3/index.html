@@ -46,6 +46,133 @@
     const styleOf = (cat) => CATEGORY_STYLE[cat] || CATEGORY_STYLE['기타'];
 
     // ========================================
+    // 🛒 계절별 인기 식재료 (쿠팡 식품 판매 랭킹 기반 큐레이션)
+    // - '사계절 인기'는 쿠팡 식품 카테고리에서 가정용으로 상시 베스트셀러인 필수 식재료
+    // - 봄/여름/가을/겨울은 위 상시 품목 + 각 계절 제철 인기 재료
+    // - cat 값은 위 CATEGORIES('채소/육류/유제품/과일/기타')와 일치해야 한다.
+    // ========================================
+    const SEASONS = [
+      { key: 'mine',   label: '내 단골', emoji: '🛒' },
+      { key: 'staple', label: '사계절 인기', emoji: '⭐' },
+      { key: 'spring', label: '봄',   emoji: '🌸' },
+      { key: 'summer', label: '여름', emoji: '🌞' },
+      { key: 'fall',   label: '가을', emoji: '🍂' },
+      { key: 'winter', label: '겨울', emoji: '❄️' },
+    ];
+
+    const SEASONAL_INGREDIENTS = {
+      // 쿠팡 식품 상시 베스트 (가정에서 가장 많이 쓰는 재료)
+      staple: [
+        { name: '계란',     cat: '기타',   emoji: '🥚', qty: 10,  unit: '개' },
+        { name: '우유',     cat: '유제품', emoji: '🥛', qty: 900, unit: 'ml' },
+        { name: '양파',     cat: '채소',   emoji: '🧅', qty: 3,   unit: '개' },
+        { name: '대파',     cat: '채소',   emoji: '🌿', qty: 1,   unit: '봉지' },
+        { name: '감자',     cat: '채소',   emoji: '🥔', qty: 5,   unit: '개' },
+        { name: '당근',     cat: '채소',   emoji: '🥕', qty: 3,   unit: '개' },
+        { name: '두부',     cat: '기타',   emoji: '⬜', qty: 1,   unit: '개' },
+        { name: '콩나물',   cat: '채소',   emoji: '🌱', qty: 1,   unit: '봉지' },
+        { name: '마늘',     cat: '채소',   emoji: '🧄', qty: 1,   unit: '통' },
+        { name: '삼겹살',   cat: '육류',   emoji: '🥓', qty: 500, unit: 'g' },
+        { name: '닭가슴살', cat: '육류',   emoji: '🍗', qty: 500, unit: 'g' },
+        { name: '김치',     cat: '기타',   emoji: '🥬', qty: 1,   unit: '통' },
+      ],
+      // 봄 제철 (3~5월)
+      spring: [
+        { name: '딸기',         cat: '과일', emoji: '🍓', qty: 1, unit: '팩' },
+        { name: '봄동',         cat: '채소', emoji: '🥬', qty: 1, unit: '봉지' },
+        { name: '냉이',         cat: '채소', emoji: '🌿', qty: 1, unit: '봉지' },
+        { name: '달래',         cat: '채소', emoji: '🌿', qty: 1, unit: '봉지' },
+        { name: '미나리',       cat: '채소', emoji: '🌿', qty: 1, unit: '봉지' },
+        { name: '양배추',       cat: '채소', emoji: '🥬', qty: 1, unit: '개' },
+        { name: '두릅',         cat: '채소', emoji: '🌱', qty: 1, unit: '팩' },
+        { name: '아스파라거스', cat: '채소', emoji: '🥬', qty: 1, unit: '팩' },
+        { name: '참나물',       cat: '채소', emoji: '🌿', qty: 1, unit: '봉지' },
+      ],
+      // 여름 제철 (6~8월)
+      summer: [
+        { name: '수박',   cat: '과일', emoji: '🍉', qty: 1, unit: '통' },
+        { name: '참외',   cat: '과일', emoji: '🍈', qty: 5, unit: '개' },
+        { name: '복숭아', cat: '과일', emoji: '🍑', qty: 1, unit: '팩' },
+        { name: '포도',   cat: '과일', emoji: '🍇', qty: 1, unit: '팩' },
+        { name: '옥수수', cat: '채소', emoji: '🌽', qty: 3, unit: '개' },
+        { name: '오이',   cat: '채소', emoji: '🥒', qty: 3, unit: '개' },
+        { name: '애호박', cat: '채소', emoji: '🥒', qty: 2, unit: '개' },
+        { name: '가지',   cat: '채소', emoji: '🍆', qty: 3, unit: '개' },
+        { name: '토마토', cat: '채소', emoji: '🍅', qty: 1, unit: '팩' },
+        { name: '열무',   cat: '채소', emoji: '🥬', qty: 1, unit: '봉지' },
+      ],
+      // 가을 제철 (9~11월)
+      fall: [
+        { name: '사과',   cat: '과일', emoji: '🍎', qty: 5, unit: '개' },
+        { name: '배',     cat: '과일', emoji: '🍐', qty: 3, unit: '개' },
+        { name: '감',     cat: '과일', emoji: '🟠', qty: 5, unit: '개' },
+        { name: '고구마', cat: '채소', emoji: '🍠', qty: 1, unit: '봉지' },
+        { name: '밤',     cat: '기타', emoji: '🌰', qty: 1, unit: '봉지' },
+        { name: '단호박', cat: '채소', emoji: '🎃', qty: 1, unit: '개' },
+        { name: '버섯',   cat: '채소', emoji: '🍄', qty: 1, unit: '팩' },
+        { name: '배추',   cat: '채소', emoji: '🥬', qty: 1, unit: '개' },
+        { name: '무',     cat: '채소', emoji: '🥬', qty: 1, unit: '개' },
+      ],
+      // 겨울 제철 (12~2월)
+      winter: [
+        { name: '귤',     cat: '과일', emoji: '🍊', qty: 1, unit: '봉지' },
+        { name: '딸기',   cat: '과일', emoji: '🍓', qty: 1, unit: '팩' },
+        { name: '사과',   cat: '과일', emoji: '🍎', qty: 5, unit: '개' },
+        { name: '유자',   cat: '과일', emoji: '🍋', qty: 1, unit: '통' },
+        { name: '배추',   cat: '채소', emoji: '🥬', qty: 2, unit: '개' },
+        { name: '무',     cat: '채소', emoji: '🥬', qty: 2, unit: '개' },
+        { name: '시금치', cat: '채소', emoji: '🥬', qty: 1, unit: '봉지' },
+        { name: '대파',   cat: '채소', emoji: '🌿', qty: 1, unit: '봉지' },
+        { name: '고구마', cat: '채소', emoji: '🍠', qty: 1, unit: '봉지' },
+        { name: '굴',     cat: '기타', emoji: '🦪', qty: 1, unit: '팩' },
+      ],
+    };
+
+    // ========================================
+    // 🛒 내 구매 랭킹 (쿠팡 주문내역 2026-05~06 집계 기반)
+    // - count: 해당 기간 구매(주문 라인) 횟수 → 개인 판매 랭킹
+    // - seasons: 주로 쓰는 계절('all'은 사계절 상시). '내 단골' 탭에서
+    //   "지금 계절에 자주 쓰는 품목"을 1순위로, 그 다음 구매 횟수 순으로 정렬한다.
+    // ========================================
+    const MY_INGREDIENTS = [
+      { name: '루꼴라',     cat: '채소',   emoji: '🌿', qty: 100, unit: 'g',   count: 4, seasons: ['all'] },
+      { name: '오이',       cat: '채소',   emoji: '🥒', qty: 5,   unit: '개',  count: 4, seasons: ['summer'] },
+      { name: '방울토마토', cat: '채소',   emoji: '🍅', qty: 1,   unit: '팩',  count: 4, seasons: ['summer'] },
+      { name: '플레인요거트', cat: '유제품', emoji: '🥛', qty: 1,  unit: '통',  count: 4, seasons: ['all'] },
+      { name: '닭가슴살',   cat: '육류',   emoji: '🍗', qty: 400, unit: 'g',   count: 3, seasons: ['all'] },
+      { name: '두부면',     cat: '기타',   emoji: '🍜', qty: 1,   unit: '팩',  count: 3, seasons: ['all'] },
+      { name: '가지',       cat: '채소',   emoji: '🍆', qty: 5,   unit: '개',  count: 2, seasons: ['summer', 'fall'] },
+      { name: '사과',       cat: '과일',   emoji: '🍎', qty: 1,   unit: '봉지', count: 2, seasons: ['fall', 'winter'] },
+      { name: '두부',       cat: '기타',   emoji: '⬜', qty: 2,   unit: '개',  count: 2, seasons: ['all'] },
+      { name: '청상추',     cat: '채소',   emoji: '🥬', qty: 1,   unit: '봉지', count: 2, seasons: ['all'] },
+      { name: '계란',       cat: '기타',   emoji: '🥚', qty: 30,  unit: '개',  count: 2, seasons: ['all'] },
+      { name: '마늘',       cat: '채소',   emoji: '🧄', qty: 1,   unit: '통',  count: 2, seasons: ['all'] },
+      { name: '새우',       cat: '기타',   emoji: '🦐', qty: 1,   unit: '팩',  count: 2, seasons: ['all'] },
+      { name: '치즈',       cat: '유제품', emoji: '🧀', qty: 1,   unit: '팩',  count: 2, seasons: ['all'] },
+      { name: '우유',       cat: '유제품', emoji: '🥛', qty: 900, unit: 'ml',  count: 2, seasons: ['all'] },
+      { name: '수박',       cat: '과일',   emoji: '🍉', qty: 1,   unit: '통',  count: 1, seasons: ['summer'] },
+      { name: '감자',       cat: '채소',   emoji: '🥔', qty: 1,   unit: '봉지', count: 1, seasons: ['all'] },
+      { name: '시금치',     cat: '채소',   emoji: '🥬', qty: 1,   unit: '봉지', count: 1, seasons: ['winter'] },
+      { name: '초당옥수수', cat: '채소',   emoji: '🌽', qty: 3,   unit: '개',  count: 1, seasons: ['summer'] },
+      { name: '콩나물',     cat: '채소',   emoji: '🌱', qty: 1,   unit: '봉지', count: 1, seasons: ['all'] },
+      { name: '대파',       cat: '채소',   emoji: '🌿', qty: 1,   unit: '봉지', count: 1, seasons: ['all'] },
+      { name: '양상추',     cat: '채소',   emoji: '🥬', qty: 1,   unit: '통',  count: 1, seasons: ['all'] },
+      { name: '소고기',     cat: '육류',   emoji: '🥩', qty: 200, unit: 'g',   count: 1, seasons: ['all'] },
+    ];
+
+    // 이름 -> 구매 횟수 (계절 탭에서 '내가 산 재료'를 위로 올리고 🛒 표시)
+    const MY_COUNT = MY_INGREDIENTS.reduce((m, it) => { m[it.name] = it.count; return m; }, {});
+
+    // 현재 월 기준 기본 계절 선택
+    function getCurrentSeason() {
+      const m = new Date().getMonth() + 1;
+      if (m >= 3 && m <= 5) return 'spring';
+      if (m >= 6 && m <= 8) return 'summer';
+      if (m >= 9 && m <= 11) return 'fall';
+      return 'winter';
+    }
+
+    // ========================================
     // 🎨 Design System Components
     // ========================================
     function Button({ variant = 'primary', size = 'md', className = '', ...props }) {
@@ -262,6 +389,177 @@
     }
 
     // ========================================
+    // 🧩 계절별 인기 식재료 빠른 추가
+    // ========================================
+    function SeasonalPicker({ existingNames, onAdd }) {
+      // 기본 탭은 '내 단골'(개인 구매 랭킹). 없으면 현재 계절.
+      const [season, setSeason] = useState('mine');
+      const [addingName, setAddingName] = useState(null);
+      const [bulkAdding, setBulkAdding] = useState(false);
+
+      const isMine = season === 'mine';
+
+      // 표시 목록 구성
+      // - 내 단골: ① 지금 계절에 자주 쓰는 품목 → ② 구매 횟수 순
+      // - 계절 탭: 내가 구매한(단골) 재료를 위로 올림
+      const list = useMemo(() => {
+        if (isMine) {
+          const cur = getCurrentSeason();
+          const inSeason = (it) => it.seasons.includes('all') || it.seasons.includes(cur);
+          return [...MY_INGREDIENTS].sort((a, b) => {
+            const aIn = inSeason(a), bIn = inSeason(b);
+            if (aIn !== bIn) return aIn ? -1 : 1;   // 1순위: 제철
+            return b.count - a.count;                // 2순위: 구매 랭킹
+          });
+        }
+        return [...(SEASONAL_INGREDIENTS[season] || [])].sort(
+          (a, b) => (MY_COUNT[b.name] || 0) - (MY_COUNT[a.name] || 0)
+        );
+      }, [season, isMine]);
+
+      const busy = addingName !== null || bulkAdding;
+
+      // 아직 냉장고에 없는(담을 수 있는) 재료들
+      const remaining = list.filter((item) => !existingNames.has(item.name));
+
+      const handlePick = async (item) => {
+        if (existingNames.has(item.name) || busy) return;
+        setAddingName(item.name);
+        try {
+          await onAdd({
+            name: item.name,
+            category: item.cat,
+            quantity: item.qty,
+            unit: item.unit,
+          });
+        } finally {
+          setAddingName(null);
+        }
+      };
+
+      // 현재 계절에서 아직 없는 재료를 모두 담는다 (순차 처리)
+      const handleAddAll = async () => {
+        if (busy || remaining.length === 0) return;
+        setBulkAdding(true);
+        try {
+          for (const item of remaining) {
+            await onAdd({
+              name: item.name,
+              category: item.cat,
+              quantity: item.qty,
+              unit: item.unit,
+            });
+          }
+        } finally {
+          setBulkAdding(false);
+        }
+      };
+
+      return (
+        <Card className="p-5">
+          <div className="flex items-start gap-2">
+            <span className="text-2xl leading-none">🛒</span>
+            <div>
+              <h2 className="text-lg font-bold text-slate-800">
+                {isMine ? '내 단골 식재료' : '계절별 인기 식재료'}
+              </h2>
+              <p className="mt-0.5 text-sm text-slate-500">
+                {isMine
+                  ? '내 쿠팡 주문내역 기반 구매 랭킹이에요. 지금 계절에 자주 쓰는 것부터 보여줍니다.'
+                  : '쿠팡 식품 판매 랭킹 기준이에요. 🛒 표시는 내가 실제로 자주 산 재료라 위쪽에 있어요.'}
+              </p>
+            </div>
+          </div>
+
+          {/* 계절 선택 + 한 번에 담기 */}
+          <div className="mt-4 flex flex-wrap items-center gap-2">
+            {SEASONS.map((s) => (
+              <button
+                key={s.key}
+                type="button"
+                onClick={() => setSeason(s.key)}
+                disabled={busy}
+                className={`rounded-full border px-3 py-1.5 text-sm font-semibold transition-colors disabled:opacity-60 ${
+                  season === s.key
+                    ? 'border-sky-600 bg-sky-600 text-white shadow-sm'
+                    : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                }`}
+              >
+                {s.emoji} {s.label}
+              </button>
+            ))}
+
+            {/* 한 번에 담기 (내 단골 / 이 계절 재료) */}
+            <button
+              type="button"
+              onClick={handleAddAll}
+              disabled={busy || remaining.length === 0}
+              title={
+                remaining.length === 0
+                  ? (isMine ? '내 단골이 모두 냉장고에 있어요' : '이 계절 재료가 모두 냉장고에 있어요')
+                  : `${remaining.length}개 재료를 한 번에 담기`
+              }
+              className="ml-auto inline-flex items-center gap-1.5 rounded-full border border-emerald-500 bg-emerald-500 px-3 py-1.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {bulkAdding ? (
+                <><Spinner /> 담는 중...</>
+              ) : (
+                <>🧺 {isMine ? '내 단골' : '이 계절 재료'} 한 번에 담기{remaining.length > 0 ? ` (${remaining.length})` : ''}</>
+              )}
+            </button>
+          </div>
+
+          {/* 재료 칩 */}
+          <div className="mt-4 flex flex-wrap gap-2">
+            {list.map((item) => {
+              const already = existingNames.has(item.name);
+              const isAdding = addingName === item.name;
+              const buyCount = MY_COUNT[item.name] || 0; // 내 구매 횟수(단골 여부)
+              const isRegular = buyCount > 0;             // 🛒 단골
+              return (
+                <button
+                  key={item.name}
+                  type="button"
+                  onClick={() => handlePick(item)}
+                  disabled={already || busy}
+                  title={
+                    already
+                      ? '이미 냉장고에 있어요'
+                      : `${item.qty}${item.unit} 담기${isRegular ? ` · 내가 ${buyCount}번 산 단골` : ''}`
+                  }
+                  className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm transition-colors ${
+                    already
+                      ? 'cursor-default border-emerald-200 bg-emerald-50 text-emerald-600'
+                      : isRegular
+                        ? 'border-amber-300 bg-amber-50 text-slate-700 hover:border-amber-400 hover:bg-amber-100'
+                        : 'border-slate-200 bg-white text-slate-700 hover:border-sky-300 hover:bg-sky-50'
+                  } disabled:opacity-70`}
+                >
+                  {!already && isRegular && <span title="내 단골">🛒</span>}
+                  <span>{item.emoji}</span>
+                  <span className="font-medium">{item.name}</span>
+                  <span className="text-xs text-slate-400">{item.qty}{item.unit}</span>
+                  {isRegular && (
+                    <span className="rounded-full bg-amber-200/70 px-1.5 text-[11px] font-semibold text-amber-800">
+                      {buyCount}회
+                    </span>
+                  )}
+                  {already ? (
+                    <span className="text-emerald-500">✓</span>
+                  ) : isAdding ? (
+                    <Spinner />
+                  ) : (
+                    <span className="text-slate-300">＋</span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </Card>
+      );
+    }
+
+    // ========================================
     // 🧩 냉장고 화면 (재료 등록/목록)
     // ========================================
     function FridgeView() {
@@ -326,11 +624,19 @@
 
       const total = items.length;
 
+      // 이미 냉장고에 있는 재료 이름 집합 (계절별 빠른 추가에서 중복 방지/표시용)
+      const existingNames = useMemo(() => new Set(items.map((it) => it.name)), [items]);
+
       return (
         <div>
           <p className="mb-4 text-sm text-slate-500">
             냉장고 속 재료를 등록하고 관리하세요. {!loading && !error && `현재 ${total}개 보관 중`}
           </p>
+
+          {/* 계절별 인기 식재료 빠른 추가 */}
+          <div className="mb-6">
+            <SeasonalPicker existingNames={existingNames} onAdd={handleAdd} />
+          </div>
 
           {/* 등록 폼 */}
           <div className="mb-8">

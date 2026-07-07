@@ -1,0 +1,4 @@
+선택한 주제 : 기사 url을 주면 분석하여 대응하여야 할 과제애 대한 리포트 생성
+웹사이트목록 : https://www.mt.co.kr/finance/2026/07/06/2026070519470993021?utm_source=chatgpt.com
+
+https://www.etnews.com/20260629000457
