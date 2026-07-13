@@ -1,5 +1,9 @@
 # 개인 로컬 설정 (PC마다 다름, 공개 불필요)
 .claude/settings.local.json
+.claude/settings.local.json.tmp.*
+
+# 서버 실행 로그 (실행할 때마다 바뀜)
+*.log
 
 # 강사 참고용 에이전트 (저장소에 안 올림 — 내가 만든 ksk-react-dev.md는 유지)
 .claude/agents/single-react-dev.md

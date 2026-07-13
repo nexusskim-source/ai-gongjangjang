@@ -1,0 +1,12 @@
+{
+  "name": "day-on-cafe-db",
+  "version": "1.0.0",
+  "description": "Day On(데이온) 카페 운영 DB — week_5/퀘스트6",
+  "scripts": {
+    "seed": "node seed.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "pg": "^8.11.5"
+  }
+}

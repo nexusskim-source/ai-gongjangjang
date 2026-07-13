@@ -84,6 +84,10 @@ async function ensureAuthSchema(pool) {
       created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
     )
   `);
+  // 프로필 사진 컬럼 (기존 사용자 테이블에도 안전하게 추가)
+  await pool.query(
+    "ALTER TABLE shop_users ADD COLUMN IF NOT EXISTS profile_image TEXT NOT NULL DEFAULT ''"
+  );
 }
 
 // 입력 검증
@@ -128,7 +132,7 @@ async function signup(pool, body) {
   }
 
   const token = signToken({ uid: userId, username });
-  return { success: true, token, username };
+  return { success: true, token, username, profileImage: '' };
 }
 
 async function login(pool, body) {
@@ -143,7 +147,7 @@ async function login(pool, body) {
     throw httpError(401, '아이디 또는 비밀번호가 올바르지 않습니다.');
   }
   const token = signToken({ uid: rows[0].id, username: rows[0].username });
-  return { success: true, token, username: rows[0].username };
+  return { success: true, token, username: rows[0].username, profileImage: rows[0].profile_image || '' };
 }
 
 module.exports = {

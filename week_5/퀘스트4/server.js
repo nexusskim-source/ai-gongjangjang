@@ -10,6 +10,8 @@ const fs = require('fs');
 const path = require('path');
 const { Pool } = require('pg');
 const auth = require('./auth');
+const payments = require('./payments');
+const profile = require('./profile');
 
 const PORT = process.env.PORT || 3000;
 const INDEX_FILE = path.join(__dirname, 'index.html');
@@ -101,6 +103,8 @@ async function initDb() {
       UNIQUE (user_id, product_id)
     )
   `);
+  await payments.ensureOrderSchema(pool); // shop_orders (결제/주문 내역)
+  await profile.ensureProfileSchema(pool); // shop_users.profile_image
   await seedProducts();
 }
 
@@ -288,6 +292,57 @@ const server = http.createServer(async (req, res) => {
       return sendJSON(res, 200, rows.map(rowToProduct));
     }
 
+    // ---- ImageKit 업로드 인증 파라미터 (인증 필수) ----
+    // 프런트가 파일을 ImageKit 에 직접 올리기 전에 서버 서명을 받아간다.
+    if (pathname === '/api/imagekit-auth') {
+      if (method !== 'GET') {
+        return sendJSON(res, 405, { success: false, message: '허용되지 않은 메서드입니다.' });
+      }
+      const user = requireUser(req, res);
+      if (!user) return;
+      try {
+        return sendJSON(res, 200, profile.getUploadAuthParams());
+      } catch (err) {
+        const status = err.status || 500;
+        if (status >= 500) console.error('ImageKit 인증 오류:', err);
+        return sendJSON(res, status, { success: false, message: err.message || '서버 오류' });
+      }
+    }
+
+    // ---- 프로필 조회/사진 저장 (인증 필수, 본인 것만) ----
+    if (pathname === '/api/profile') {
+      const user = requireUser(req, res);
+      if (!user) return;
+
+      if (method === 'GET') {
+        try {
+          return sendJSON(res, 200, await profile.getProfile(pool, user.id));
+        } catch (err) {
+          const status = err.status || 500;
+          if (status >= 500) console.error('프로필 조회 오류:', err);
+          return sendJSON(res, status, { success: false, message: err.message || '서버 오류' });
+        }
+      }
+
+      if (method === 'PUT') {
+        let body;
+        try {
+          body = await readBody(req);
+        } catch (err) {
+          return sendJSON(res, 400, { success: false, message: '잘못된 요청 형식입니다. (' + err.message + ')' });
+        }
+        try {
+          return sendJSON(res, 200, await profile.setProfileImage(pool, user.id, body));
+        } catch (err) {
+          const status = err.status || 500;
+          if (status >= 500) console.error('프로필 저장 오류:', err);
+          return sendJSON(res, status, { success: false, message: err.message || '서버 오류' });
+        }
+      }
+
+      return sendJSON(res, 405, { success: false, message: '허용되지 않은 메서드입니다.' });
+    }
+
     // ---- 장바구니 (전부 인증 필수, 본인 것만) ----
     if (pathname === '/api/cart') {
       const user = requireUser(req, res);
@@ -325,6 +380,60 @@ const server = http.createServer(async (req, res) => {
       }
 
       return sendJSON(res, 405, { success: false, message: '허용되지 않은 메서드입니다.' });
+    }
+
+    // ---- 주문: 목록 조회(GET, 구매내역) / 생성(POST, 결제 직전) ----
+    // POST 는 서버가 장바구니 기준으로 금액을 재계산해 PENDING 주문을 만든다.
+    if (pathname === '/api/orders') {
+      const user = requireUser(req, res);
+      if (!user) return;
+
+      if (method === 'GET') {
+        try {
+          return sendJSON(res, 200, await payments.listOrders(pool, user.id));
+        } catch (err) {
+          const status = err.status || 500;
+          if (status >= 500) console.error('구매내역 조회 오류:', err);
+          return sendJSON(res, status, { success: false, message: err.message || '서버 오류' });
+        }
+      }
+
+      if (method === 'POST') {
+        try {
+          const order = await payments.createOrder(pool, user.id);
+          return sendJSON(res, 201, order);
+        } catch (err) {
+          const status = err.status || 500;
+          if (status >= 500) console.error('주문 생성 오류:', err);
+          return sendJSON(res, status, { success: false, message: err.message || '서버 오류' });
+        }
+      }
+
+      return sendJSON(res, 405, { success: false, message: '허용되지 않은 메서드입니다.' });
+    }
+
+    // ---- 결제 승인 (successUrl 리다이렉트 후 프런트가 호출, 인증 필수) ----
+    // 시크릿키로 토스 승인 API 호출 + 금액 위변조 검증 + 성공 시 장바구니 비우기.
+    if (pathname === '/api/payments/confirm') {
+      if (method !== 'POST') {
+        return sendJSON(res, 405, { success: false, message: '허용되지 않은 메서드입니다.' });
+      }
+      const user = requireUser(req, res);
+      if (!user) return;
+      let body;
+      try {
+        body = await readBody(req);
+      } catch (err) {
+        return sendJSON(res, 400, { success: false, message: '잘못된 요청 형식입니다. (' + err.message + ')' });
+      }
+      try {
+        const result = await payments.confirmPayment(pool, user.id, body);
+        return sendJSON(res, 200, result);
+      } catch (err) {
+        const status = err.status || 500;
+        if (status >= 500) console.error('결제 승인 오류:', err);
+        return sendJSON(res, status, { success: false, message: err.message || '서버 오류', code: err.code });
+      }
     }
 
     // ---- 정적 이미지 (/images/*.jpg 등) ----

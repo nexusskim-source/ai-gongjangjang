@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>week_6</title>
+  <style>
+    body { font-family: 'Malgun Gothic', sans-serif; max-width: 640px; margin: 60px auto; padding: 0 20px; }
+    h1 { font-size: 22px; }
+    button { padding: 8px 16px; font-size: 15px; cursor: pointer; }
+    pre { background: #f5f5f5; padding: 12px; border-radius: 6px; }
+  </style>
+</head>
+<body>
+  <h1>week_6 스타터</h1>
+  <p>Supabase DB 연결 확인용 기본 페이지입니다.</p>
+  <button onclick="checkHealth()">DB 연결 확인</button>
+  <pre id="out">버튼을 눌러 /api/health 를 호출하세요.</pre>
+  <script>
+    async function checkHealth() {
+      const out = document.getElementById('out');
+      out.textContent = '확인 중...';
+      try {
+        const res = await fetch('/api/health');
+        const data = await res.json();
+        out.textContent = JSON.stringify(data, null, 2);
+      } catch (e) {
+        out.textContent = '오류: ' + e.message;
+      }
+    }
+  </script>
+</body>
+</html>
