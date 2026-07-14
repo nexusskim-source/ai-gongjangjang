@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>모두가 자신의 무가치함과 싸우고 있다 | 드라마 포스터</title>
+  <script src="https://cdn.tailwindcss.com/3.4.16"></script>
+  <!-- ⚠️ CDN 버전 고정 필수. @babel/standalone 미고정 시 8.x 로 올라가 text/babel 인라인 변환이 깨진다. -->
+  <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone@7.23.5/babel.min.js"></script>
+  <style>
+    body {
+      font-family: "Pretendard", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, -apple-system, sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+    .tracking-title { letter-spacing: -0.055em; }
+
+    /* 필름 톤 : 채도 살짝 낮추고 대비 올려 극장 포스터 느낌 */
+    .film-tone { filter: saturate(0.92) contrast(1.1) brightness(0.94); }
+
+    /* 아주 미세한 그레인 — 인쇄 포스터 질감 */
+    .grain::after {
+      content: "";
+      position: absolute; inset: 0;
+      background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='120' height='120'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2'/></filter><rect width='120' height='120' filter='url(%23n)' opacity='0.5'/></svg>");
+      opacity: 0.06;
+      mix-blend-mode: overlay;
+      pointer-events: none;
+    }
+    .text-shadow-soft { text-shadow: 0 2px 22px rgba(0,0,0,0.55); }
+  </style>
+</head>
+<body class="bg-[#0B0A09] min-h-screen">
+  <div id="root"></div>
+
+  <script type="text/babel">
+    // ========================================
+    // 🎬 모두가 자신의 무가치함과 싸우고 있다 — 포스터
+    //   메인 컷 : stills/still_08.jpg (등장인물 전원 앙상블 컷)
+    //   서브 컷 : stills/still_01.jpg (황동만 · 변은아 투샷)
+    // ========================================
+    const HERO = "stills/still_08.jpg";
+    const SUB  = "stills/still_01.jpg";
+
+    // 팔레트
+    //  ink    #0B0A09  먹색 배경
+    //  paper  #EFE7DA  종이 흰색
+    //  blood  #C2402F  포인트 레드 (JTBC 계열 톤)
+    //  dim    #8C8375  흐린 회갈색
+
+    const CAST_MAIN = ["구교환", "고윤정", "오정세", "강말금"];
+    const CAST_SUB  = [
+      "박해준", "배종옥", "한선화", "최원영", "전배수",
+      "심희섭", "성동일", "박예니", "배명진", "조민국",
+    ];
+
+    function Poster() {
+      return (
+        <div className="relative w-full max-w-[860px] mx-auto bg-[#0B0A09] grain overflow-hidden
+                        shadow-[0_40px_120px_-20px_rgba(0,0,0,0.9)]">
+
+          {/* ── 상단 : 앙상블 메인 컷 ───────────────────── */}
+          <div className="relative">
+            <img
+              src={HERO}
+              alt="영화사 사무실 긴 테이블에 둘러앉은 등장인물 전원 — 가운데 테이블 위에 비스듬히 누운 황동만(구교환)과 그 옆에 앉은 변은아(고윤정)"
+              className="w-full block film-tone"
+            />
+            {/* 위아래 어둠으로 자연스럽게 물리기 */}
+            <div className="absolute inset-x-0 top-0 h-24 bg-gradient-to-b from-[#0B0A09] to-transparent" />
+            <div className="absolute inset-x-0 bottom-0 h-56 bg-gradient-to-t from-[#0B0A09] via-[#0B0A09]/85 to-transparent" />
+
+            {/* 좌상단 태그 */}
+            <div className="absolute top-6 left-6 flex items-center gap-3">
+              <span className="px-3 py-1 text-[10px] tracking-[0.28em] font-bold text-[#EFE7DA]
+                               border border-[#EFE7DA]/50 rounded-full">
+                JTBC · NETFLIX
+              </span>
+              <span className="text-[10px] tracking-[0.28em] font-semibold text-[#EFE7DA]/70">
+                12부작
+              </span>
+            </div>
+          </div>
+
+          {/* ── 하단 : 타이포 ──────────────────────────── */}
+          <div className="relative -mt-24 px-8 sm:px-12 pb-12 flex flex-col items-center text-center gap-6">
+
+            {/* 카피 */}
+            <p className="text-[11px] sm:text-xs tracking-[0.34em] text-[#C2402F] font-bold uppercase pl-[0.34em]">
+              We Are All Trying Here
+            </p>
+
+            {/* 타이틀 */}
+            <h1 className="tracking-title text-[2.35rem] sm:text-[3.6rem] leading-[1.02] font-black
+                           text-[#EFE7DA] text-shadow-soft">
+              모두가 자신의<br />
+              무가치함과 싸우고 있다
+            </h1>
+
+            {/* 태그라인 */}
+            <p className="max-w-[30rem] text-sm sm:text-base leading-relaxed text-[#8C8375]">
+              20년째 데뷔하지 못한 감독 지망생과, 지쳐버린 제작자.
+              <br className="hidden sm:block" />
+              바닥에서 만난 두 사람이 서로의 값을 다시 매긴다.
+            </p>
+
+            {/* 구분선 */}
+            <div className="w-16 h-px bg-[#C2402F]/70 my-1" />
+
+            {/* 주연 */}
+            <p className="text-lg sm:text-2xl font-bold text-[#EFE7DA] tracking-tight">
+              {CAST_MAIN.join("  ·  ")}
+            </p>
+
+            {/* 조연 */}
+            <p className="max-w-[34rem] text-[11px] sm:text-xs leading-relaxed text-[#8C8375]/80 tracking-wide">
+              {CAST_SUB.join(" · ")}
+            </p>
+
+            {/* 서브 컷 — 두 주인공 투샷 */}
+            <div className="mt-2 w-full max-w-[26rem] relative">
+              <img
+                src={SUB}
+                alt="네온 간판 앞 계단에 나란히 앉은 황동만(구교환)과 변은아(고윤정)"
+                className="w-full block film-tone rounded-sm opacity-90"
+              />
+              <div className="absolute inset-0 ring-1 ring-inset ring-[#EFE7DA]/15 rounded-sm" />
+            </div>
+
+            {/* 크레딧 */}
+            <div className="mt-4 w-full max-w-[34rem] border-t border-[#EFE7DA]/15 pt-5
+                            grid grid-cols-3 gap-3 text-left">
+              <div>
+                <p className="text-[9px] tracking-[0.22em] text-[#8C8375]/70 font-semibold">극본</p>
+                <p className="text-xs sm:text-sm text-[#EFE7DA] font-semibold">박해영</p>
+              </div>
+              <div>
+                <p className="text-[9px] tracking-[0.22em] text-[#8C8375]/70 font-semibold">연출</p>
+                <p className="text-xs sm:text-sm text-[#EFE7DA] font-semibold">차영훈</p>
+              </div>
+              <div>
+                <p className="text-[9px] tracking-[0.22em] text-[#8C8375]/70 font-semibold">방영</p>
+                <p className="text-xs sm:text-sm text-[#EFE7DA] font-semibold">2026.04.18</p>
+              </div>
+            </div>
+
+            <p className="mt-2 text-[9px] tracking-[0.2em] text-[#8C8375]/50">
+              팬메이드 포스터 · 이미지 저작권은 제작사에 있습니다
+            </p>
+          </div>
+        </div>
+      );
+    }
+
+    function App() {
+      return (
+        <main className="min-h-screen bg-[#0B0A09] py-10 px-4">
+          <Poster />
+        </main>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+  </script>
+</body>
+</html>

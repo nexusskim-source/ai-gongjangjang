@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>망고빙수 포스터 | MANGO BINGSU</title>
+  <script src="https://cdn.tailwindcss.com/3.4.16"></script>
+  <!-- ⚠️ CDN 버전 고정 필수. @babel/standalone 미고정 시 8.x 로 올라가 text/babel 인라인 변환이 깨진다. -->
+  <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone@7.23.5/babel.min.js"></script>
+  <style>
+    /* Tailwind 유틸로 표현하기 어려운 것만 최소한으로 */
+    body {
+      font-family: "Pretendard", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, -apple-system, sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+    .tracking-title { letter-spacing: -0.04em; }
+    @keyframes floaty {
+      0%, 100% { transform: translateY(0); }
+      50%      { transform: translateY(-6px); }
+    }
+    .floaty { animation: floaty 5s ease-in-out infinite; }
+    @media (prefers-reduced-motion: reduce) {
+      .floaty { animation: none; }
+    }
+  </style>
+</head>
+<body class="bg-neutral-200 min-h-screen">
+  <div id="root"></div>
+
+  <script type="text/babel">
+    // ========================================
+    // React Hooks
+    // ========================================
+    const { useState } = React;
+
+    // ========================================
+    // 🎨 팔레트 (6색 절제)
+    //  ink   #2E2A26  선/타이포
+    //  cream #FFF4E3  배경
+    //  mango #FFD255 → #F58F2B  그라데이션
+    //  ice   #FFFFFF / #DCE7EE  얼음
+    //  glass #A9C9D6  유리
+    //  mint  #3E9B6D  민트
+    // ========================================
+
+    // ========================================
+    // 🍧 망고빙수 인라인 SVG (미니멀 · 적은 도형)
+    // ========================================
+    function MangoBingsuArt({ className = "" }) {
+      return (
+        <svg
+          viewBox="0 0 360 360"
+          className={`w-full max-w-[420px] mx-auto block ${className}`}
+          role="img"
+          aria-label="유리볼에 담긴 눈꽃 얼음 위에 망고 큐브가 수북이 쌓이고 연유와 민트 잎이 올려진 망고빙수 일러스트"
+        >
+          <defs>
+            {/* 망고 그라데이션 */}
+            <linearGradient id="mango" x1="0" y1="0" x2="0.35" y2="1">
+              <stop offset="0%" stopColor="#FFD255" />
+              <stop offset="100%" stopColor="#F58F2B" />
+            </linearGradient>
+            {/* 더미 뒤쪽 큐브용 — 한 톤 진하게 (앞뒤 깊이감) */}
+            <linearGradient id="mangoDeep" x1="0" y1="0" x2="0.35" y2="1">
+              <stop offset="0%" stopColor="#F7B23C" />
+              <stop offset="100%" stopColor="#E2751B" />
+            </linearGradient>
+            {/* 얼음 그라데이션 (흰색 → 아주 옅은 회색) */}
+            <linearGradient id="ice" x1="0.2" y1="0" x2="0.8" y2="1">
+              <stop offset="0%" stopColor="#FFFFFF" />
+              <stop offset="100%" stopColor="#E8F1F6" />
+            </linearGradient>
+            {/* 유리 */}
+            <linearGradient id="glass" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0%" stopColor="#FFFFFF" stopOpacity="0.9" />
+              <stop offset="100%" stopColor="#DCEBF1" stopOpacity="0.9" />
+            </linearGradient>
+          </defs>
+
+          {/* 배경 헤일로 (포스터 톤) */}
+          <circle cx="180" cy="160" r="132" fill="#FFE6BF" opacity="0.55" />
+
+          {/* 바닥 그림자 */}
+          <ellipse cx="180" cy="330" rx="96" ry="9" fill="#E9D6B8" opacity="0.7" />
+
+          {/* 🥄 스푼 : 볼 뒤에서 비스듬히 꽂힌 형태 (손잡이 끝이 볼에 가려짐) */}
+          <g stroke="#2E2A26" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <ellipse cx="296" cy="112" rx="14" ry="19" transform="rotate(22 296 112)" fill="#EFF4F7" />
+            <path d="M290,130 L246,238" fill="none" />
+          </g>
+
+          {/* 🍸 유리볼 : 굽 + 다리 + 볼 + 림 */}
+          <g stroke="#2E2A26" strokeWidth="2.2" strokeLinejoin="round">
+            {/* 굽 */}
+            <path d="M140,318 C142,306 218,306 220,318 Z" fill="#EAF3F7" />
+            <ellipse cx="180" cy="318" rx="44" ry="7" fill="#EAF3F7" />
+            {/* 다리 */}
+            <path d="M170,268 C172,290 171,302 168,311 L192,311 C189,302 188,290 190,268 Z" fill="url(#glass)" />
+            {/* 볼 */}
+            <path d="M92,192 C95,240 130,274 180,274 C230,274 265,240 268,192 Z" fill="url(#glass)" />
+            {/* 림 (타원) */}
+            <ellipse cx="180" cy="192" rx="88" ry="13" fill="url(#glass)" />
+          </g>
+          {/* 볼 안쪽에 비치는 얼음 결 + 유리 하이라이트 */}
+          <g fill="none" strokeLinecap="round">
+            <path d="M112,214 C126,232 150,244 176,246" stroke="#DCE7EE" strokeWidth="3.5" />
+            <path d="M206,246 C230,240 246,226 254,210" stroke="#DCE7EE" strokeWidth="3.5" />
+            <path d="M110,206 C114,232 126,250 142,260" stroke="#FFFFFF" strokeWidth="4.5" opacity="0.95" />
+          </g>
+
+          {/* ❄️ 눈꽃 얼음 더미 : 림 안에 소복이 쌓인 돔 + 아래쪽 스캘럽 */}
+          <path
+            d="M104,193
+               C106,140 138,98 180,98
+               C222,98 254,140 256,193
+               C246,204 238,194 226,201
+               C214,207 202,196 188,203
+               C174,208 162,195 148,202
+               C136,207 124,196 114,200
+               C110,201 106,197 104,193 Z"
+            fill="url(#ice)" stroke="#2E2A26" strokeWidth="2.2" strokeLinejoin="round" />
+          {/* 얼음 결 (옅은 회색 곡선) */}
+          <g fill="none" stroke="#DCE7EE" strokeWidth="3.5" strokeLinecap="round">
+            <path d="M126,180 C130,148 144,122 164,108" />
+            <path d="M200,106 C224,120 240,148 244,178" />
+            <path d="M154,184 C158,164 166,150 178,140" />
+          </g>
+
+          {/* 🥛 연유 드리즐 : 망고 더미 아래에서 흘러나와 얼음을 타고 내려간다 */}
+          <g fill="none" stroke="#FBE8C6" strokeWidth="7" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M142,152 C134,166 146,176 136,188 C131,194 134,196 132,200" />
+            <path d="M224,156 C232,170 220,180 230,190 C234,195 231,197 233,200" />
+          </g>
+
+          {/* 🌿 민트 잎 : 망고 더미 꼭대기에 기대어 (더미 뒤로 살짝 숨는다) */}
+          <g transform="translate(206,58) rotate(-18)">
+            <path d="M0,0 C11,-10 28,-8 34,4 C23,14 6,13 0,0 Z" fill="#3E9B6D" stroke="#2E2A26" strokeWidth="1.8" strokeLinejoin="round" />
+            <path d="M2,2 C12,2 23,3 31,5" fill="none" stroke="#2E2A26" strokeWidth="1.2" opacity="0.5" />
+          </g>
+
+          {/* 🥭 수북한 망고 큐브 더미
+              [x, y, 크기, 회전, 뒤쪽여부] — 배열 순서대로 뒤 → 앞으로 겹쳐 쌓는다.
+              뒤쪽 큐브는 진한 그라데이션(mangoDeep)이라 겹쳐도 개수가 읽힌다. */}
+          <g stroke="#2E2A26" strokeWidth="1.8" strokeLinejoin="round">
+            {[
+              [180, 66, 22, -6, true],
+              [159, 80, 20, 13, true],
+              [201, 78, 21, -12, true],
+              [140, 100, 22, -10, true],
+              [220, 100, 22, -7, true],
+              [180, 92, 25, 5, false],
+              [130, 124, 24, 9, false],
+              [157, 112, 27, -8, false],
+              [204, 111, 27, 11, false],
+              [230, 124, 24, -12, false],
+              [145, 142, 27, -7, false],
+              [180, 138, 29, 4, false],
+              [214, 144, 27, -5, false],
+              [116, 166, 20, -15, false],
+              [246, 172, 20, 12, false],
+            ].map(([x, y, s, r, back], i) => (
+              <g key={i} transform={`translate(${x},${y}) rotate(${r})`}>
+                <rect
+                  x={-s / 2} y={-s / 2} width={s} height={s} rx={s * 0.18}
+                  fill={back ? "url(#mangoDeep)" : "url(#mango)"}
+                />
+                <path
+                  d={`M${-s * 0.24},${-s * 0.24} L${s * 0.14},${-s * 0.24}`}
+                  stroke="#FFF0BF" strokeWidth="2.2" strokeLinecap="round"
+                />
+              </g>
+            ))}
+            {/* 테이블 위로 굴러떨어진 큐브 1개 */}
+            <g transform="translate(86,314) rotate(-8)">
+              <rect x="-11" y="-11" width="22" height="22" rx="4" fill="url(#mango)" />
+              <path d="M-5,-5 L4,-5" stroke="#FFF0BF" strokeWidth="2.2" strokeLinecap="round" />
+            </g>
+          </g>
+
+          {/* 테이블 라인 */}
+          <path d="M40,338 L320,338" stroke="#2E2A26" strokeWidth="2" strokeLinecap="round" opacity="0.25" />
+        </svg>
+      );
+    }
+
+    // ========================================
+    // 🧩 공통 컴포넌트
+    // ========================================
+    function Eyebrow({ children }) {
+      return (
+        <span className="inline-block px-3 py-1 text-[11px] sm:text-xs font-semibold tracking-[0.28em] text-[#2E2A26] border border-[#2E2A26]/30 rounded-full uppercase">
+          {children}
+        </span>
+      );
+    }
+
+    function Divider() {
+      return <div className="h-px w-full bg-[#2E2A26]/15" />;
+    }
+
+    function InfoItem({ label, value }) {
+      return (
+        <div className="flex flex-col items-center gap-1">
+          <span className="text-[10px] sm:text-[11px] tracking-[0.2em] text-[#2E2A26]/50 uppercase">{label}</span>
+          <span className="text-sm sm:text-base font-semibold text-[#2E2A26]">{value}</span>
+        </div>
+      );
+    }
+
+    // ========================================
+    // 📄 포스터 페이지
+    // ========================================
+    function PosterPage() {
+      return (
+        <main className="min-h-screen w-full flex items-center justify-center p-4 sm:p-8 bg-neutral-200">
+          {/* 세로형 포스터 (약 2:3 비율) */}
+          <article className="w-full max-w-[560px] bg-[#FFF4E3] shadow-2xl rounded-sm px-6 py-10 sm:px-12 sm:py-14 flex flex-col items-center gap-8 sm:gap-10">
+
+            {/* 상단 라벨 */}
+            <header className="flex flex-col items-center gap-4 text-center">
+              <Eyebrow>Summer Limited</Eyebrow>
+              <p className="text-xs sm:text-sm text-[#2E2A26]/60 tracking-wide">
+                제철 애플망고를 통째로 올린, 여름 한 그릇
+              </p>
+            </header>
+
+            {/* 일러스트 */}
+            <div className="w-full floaty">
+              <MangoBingsuArt />
+            </div>
+
+            {/* 타이틀 */}
+            <section className="flex flex-col items-center gap-3 text-center">
+              <h1 className="tracking-title text-5xl sm:text-7xl font-black text-[#2E2A26] leading-none">
+                망고빙수
+              </h1>
+              <p className="text-sm sm:text-base font-medium tracking-[0.36em] text-[#F58F2B] uppercase pl-[0.36em]">
+                Mango Bingsu
+              </p>
+            </section>
+
+            <Divider />
+
+            {/* 가격 / 기간 / 매장 */}
+            <section className="w-full grid grid-cols-3 gap-2">
+              <InfoItem label="Price" value="₩ 12,800" />
+              <InfoItem label="Period" value="07.01 – 08.31" />
+              <InfoItem label="Store" value="전 매장" />
+            </section>
+
+            <Divider />
+
+            {/* 푸터 */}
+            <footer className="flex flex-col items-center gap-2 text-center">
+              <p className="text-[11px] sm:text-xs text-[#2E2A26]/45 leading-relaxed">
+                눈꽃얼음 · 애플망고 · 연유 · 생크림<br />
+                하루 40그릇 한정으로 준비합니다.
+              </p>
+              <span className="mt-2 text-[10px] tracking-[0.3em] text-[#2E2A26]/35 uppercase">
+                Day On Dessert
+              </span>
+            </footer>
+          </article>
+        </main>
+      );
+    }
+
+    // ========================================
+    // 🚀 App
+    // ========================================
+    function App() {
+      return <PosterPage />;
+    }
+
+    // ========================================
+    // Rendering
+    // ========================================
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>
