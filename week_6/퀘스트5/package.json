@@ -1,0 +1,13 @@
+{
+  "name": "dessert-shop",
+  "version": "1.0.0",
+  "description": "디저트/베이커리 쇼핑몰 — 상품목록 + 로그인 + 장바구니 (Supabase 저장)",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "pg": "^8.13.1"
+  }
+}
