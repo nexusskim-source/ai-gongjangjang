@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>유튜브 썸네일 메이커 · 1920×1080</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: "Malgun Gothic", "맑은 고딕", -apple-system, sans-serif;
+    background: #0f1115;
+    color: #e8eaed;
+    display: flex;
+    min-height: 100vh;
+  }
+  .panel {
+    width: 340px;
+    flex-shrink: 0;
+    padding: 24px 20px;
+    background: #171a21;
+    border-right: 1px solid #262a33;
+    overflow-y: auto;
+    height: 100vh;
+  }
+  .panel h1 { font-size: 18px; margin: 0 0 4px; }
+  .panel .sub { font-size: 12px; color: #8b93a1; margin-bottom: 20px; }
+  .field { margin-bottom: 16px; }
+  .field label { display: block; font-size: 12px; color: #9aa3b2; margin-bottom: 6px; }
+  .field input[type="text"], .field textarea, .field select {
+    width: 100%;
+    background: #0f1115;
+    border: 1px solid #2c313c;
+    border-radius: 8px;
+    color: #e8eaed;
+    padding: 9px 11px;
+    font-size: 14px;
+    font-family: inherit;
+  }
+  .field textarea { resize: vertical; min-height: 54px; }
+  .row { display: flex; gap: 10px; }
+  .row .field { flex: 1; }
+  .field input[type="color"] {
+    width: 100%; height: 38px; border: 1px solid #2c313c;
+    border-radius: 8px; background: #0f1115; cursor: pointer;
+  }
+  .field input[type="range"] { width: 100%; }
+  .btn {
+    width: 100%; padding: 13px; border: none; border-radius: 10px;
+    font-size: 15px; font-weight: 700; cursor: pointer; margin-top: 6px;
+  }
+  .btn-primary { background: #ff2d55; color: #fff; }
+  .btn-primary:hover { background: #e02649; }
+  .hint { font-size: 11px; color: #6b7280; margin-top: 10px; line-height: 1.5; }
+  .stage {
+    flex: 1; display: flex; align-items: center; justify-content: center;
+    padding: 32px; overflow: auto;
+  }
+  .canvas-wrap {
+    box-shadow: 0 12px 40px rgba(0,0,0,.5);
+    border-radius: 6px; overflow: hidden; line-height: 0;
+  }
+  canvas { display: block; width: 800px; height: 450px; max-width: 100%; }
+  .preset-row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+  .preset {
+    flex: 1; min-width: 60px; padding: 8px 4px; border-radius: 8px;
+    border: 1px solid #2c313c; background: #0f1115; color: #cdd3dd;
+    font-size: 11px; cursor: pointer; text-align: center;
+  }
+  .preset:hover { border-color: #ff2d55; }
+</style>
+</head>
+<body>
+  <div class="panel">
+    <h1>유튜브 썸네일 메이커</h1>
+    <div class="sub">1920 × 1080 · 화면 그대로 PNG 저장</div>
+
+    <div class="field">
+      <label>배경 사진 (선택)</label>
+      <input type="file" id="bgImage" accept="image/*" style="width:100%;font-size:12px;color:#cdd3dd;" />
+      <button class="preset" id="clearImage" style="width:100%;margin-top:8px;">사진 제거 (색 배경으로)</button>
+    </div>
+    <div class="field" id="scrimField" style="display:none;">
+      <label>사진 어둡게 (글자 잘 보이게) <span id="scrimVal">40</span>%</label>
+      <input type="range" id="scrim" min="0" max="85" value="40" />
+    </div>
+
+    <div class="field">
+      <label>색상 프리셋</label>
+      <div class="preset-row">
+        <button class="preset" data-preset="fire">불꽃 레드</button>
+        <button class="preset" data-preset="ocean">딥 블루</button>
+        <button class="preset" data-preset="mint">민트</button>
+        <button class="preset" data-preset="dark">다크</button>
+      </div>
+    </div>
+
+    <div class="field">
+      <label>큰 제목 (위)</label>
+      <textarea id="title">진짜 이거 하나면\n끝납니다</textarea>
+    </div>
+    <div class="field">
+      <label>강조 배지 (선택)</label>
+      <input type="text" id="badge" value="충격 실화" />
+    </div>
+    <div class="field">
+      <label>하단 작은 문구 (선택)</label>
+      <input type="text" id="subtitle" value="끝까지 보면 후회 안 함" />
+    </div>
+
+    <div class="row">
+      <div class="field">
+        <label>배경 시작색</label>
+        <input type="color" id="bg1" value="#2a0a0a" />
+      </div>
+      <div class="field">
+        <label>배경 끝색</label>
+        <input type="color" id="bg2" value="#7a0f1f" />
+      </div>
+    </div>
+    <div class="row">
+      <div class="field">
+        <label>글자색</label>
+        <input type="color" id="fg" value="#ffffff" />
+      </div>
+      <div class="field">
+        <label>강조/테두리색</label>
+        <input type="color" id="accent" value="#ffd000" />
+      </div>
+    </div>
+
+    <div class="field">
+      <label>제목 크기 <span id="sizeVal">150</span>px</label>
+      <input type="range" id="titleSize" min="80" max="240" value="150" />
+    </div>
+    <div class="field">
+      <label>글자 정렬</label>
+      <select id="align">
+        <option value="left">왼쪽</option>
+        <option value="center">가운데</option>
+      </select>
+    </div>
+
+    <button class="btn btn-primary" id="download">PNG로 저장 (1920×1080)</button>
+    <div class="hint">
+      입력하면 미리보기가 바로 바뀝니다.<br />
+      저장 버튼을 누르면 정확히 1920×1080 크기 PNG 파일이 다운로드됩니다.<br />
+      줄바꿈은 제목 칸에서 Enter로.
+    </div>
+  </div>
+
+  <div class="stage">
+    <div class="canvas-wrap">
+      <canvas id="cv" width="1920" height="1080"></canvas>
+    </div>
+  </div>
+
+<script>
+const cv = document.getElementById('cv');
+const ctx = cv.getContext('2d');
+const W = 1920, H = 1080;
+
+const els = {
+  title: document.getElementById('title'),
+  badge: document.getElementById('badge'),
+  subtitle: document.getElementById('subtitle'),
+  bg1: document.getElementById('bg1'),
+  bg2: document.getElementById('bg2'),
+  fg: document.getElementById('fg'),
+  accent: document.getElementById('accent'),
+  titleSize: document.getElementById('titleSize'),
+  align: document.getElementById('align'),
+  scrim: document.getElementById('scrim'),
+};
+
+// 배경 이미지 상태
+let bgImg = null;
+const scrimField = document.getElementById('scrimField');
+
+document.getElementById('bgImage').addEventListener('change', (e) => {
+  const file = e.target.files && e.target.files[0];
+  if (!file) return;
+  const img = new Image();
+  img.onload = () => { bgImg = img; scrimField.style.display = 'block'; draw(); };
+  img.src = URL.createObjectURL(file);
+});
+
+document.getElementById('clearImage').addEventListener('click', () => {
+  bgImg = null;
+  document.getElementById('bgImage').value = '';
+  scrimField.style.display = 'none';
+  draw();
+});
+
+// 캔버스를 꽉 채우도록 이미지를 그리는 함수 (cover)
+function drawCover(img) {
+  const ir = img.width / img.height;
+  const cr = W / H;
+  let dw, dh, dx, dy;
+  if (ir > cr) { dh = H; dw = H * ir; dx = (W - dw) / 2; dy = 0; }
+  else { dw = W; dh = W / ir; dx = 0; dy = (H - dh) / 2; }
+  ctx.drawImage(img, dx, dy, dw, dh);
+}
+
+const presets = {
+  fire:  { bg1:'#2a0a0a', bg2:'#7a0f1f', fg:'#ffffff', accent:'#ffd000' },
+  ocean: { bg1:'#04121f', bg2:'#0a4d8c', fg:'#ffffff', accent:'#3be0ff' },
+  mint:  { bg1:'#062b24', bg2:'#0f9d78', fg:'#ffffff', accent:'#fff35c' },
+  dark:  { bg1:'#0a0a0d', bg2:'#232634', fg:'#ffffff', accent:'#ff2d55' },
+};
+
+document.querySelectorAll('.preset').forEach(b => {
+  b.addEventListener('click', () => {
+    const p = presets[b.dataset.preset];
+    els.bg1.value = p.bg1; els.bg2.value = p.bg2;
+    els.fg.value = p.fg; els.accent.value = p.accent;
+    draw();
+  });
+});
+
+function roundRect(x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+
+function draw() {
+  document.getElementById('sizeVal').textContent = els.titleSize.value;
+  document.getElementById('scrimVal').textContent = els.scrim.value;
+
+  if (bgImg) {
+    // 배경 사진 (꽉 채우기) + 어둡게 스크림
+    drawCover(bgImg);
+    const s = parseInt(els.scrim.value, 10) / 100;
+    if (s > 0) {
+      ctx.fillStyle = 'rgba(0,0,0,' + s + ')';
+      ctx.fillRect(0, 0, W, H);
+    }
+  } else {
+    // 배경 그라데이션 (대각선)
+    const g = ctx.createLinearGradient(0, 0, W, H);
+    g.addColorStop(0, els.bg1.value);
+    g.addColorStop(1, els.bg2.value);
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, W, H);
+  }
+
+  // 은은한 비네트
+  const vg = ctx.createRadialGradient(W/2, H/2, H*0.3, W/2, H/2, W*0.75);
+  vg.addColorStop(0, 'rgba(0,0,0,0)');
+  vg.addColorStop(1, 'rgba(0,0,0,0.45)');
+  ctx.fillStyle = vg;
+  ctx.fillRect(0, 0, W, H);
+
+  const align = els.align.value;
+  const margin = 110;
+  const centerX = W / 2;
+  ctx.textBaseline = 'alphabetic';
+  ctx.textAlign = align === 'center' ? 'center' : 'left';
+  const baseX = align === 'center' ? centerX : margin;
+
+  // 강조 배지
+  let topY = 150;
+  const badge = els.badge.value.trim();
+  if (badge) {
+    ctx.font = '900 62px "Malgun Gothic", sans-serif';
+    const tw = ctx.measureText(badge).width;
+    const padX = 34, bh = 92;
+    const bw = tw + padX * 2;
+    const bx = align === 'center' ? centerX - bw/2 : margin;
+    ctx.fillStyle = els.accent.value;
+    roundRect(bx, topY, bw, bh, 16);
+    ctx.fill();
+    ctx.fillStyle = '#111';
+    ctx.textAlign = 'center';
+    ctx.fillText(badge, bx + bw/2, topY + bh/2 + 22);
+    ctx.textAlign = align === 'center' ? 'center' : 'left';
+    topY += bh + 55;
+  } else {
+    topY = 220;
+  }
+
+  // 제목 (여러 줄 + 두꺼운 테두리)
+  const size = parseInt(els.titleSize.value, 10);
+  ctx.font = '900 ' + size + 'px "Malgun Gothic", sans-serif';
+  const lines = els.title.value.split('\n');
+  const lineH = size * 1.12;
+  let y = topY + size;
+  ctx.lineJoin = 'round';
+  ctx.lineWidth = size * 0.14;
+  for (const line of lines) {
+    ctx.strokeStyle = els.accent.value;
+    ctx.strokeText(line, baseX, y);
+    ctx.fillStyle = els.fg.value;
+    ctx.fillText(line, baseX, y);
+    y += lineH;
+  }
+
+  // 하단 작은 문구
+  const sub = els.subtitle.value.trim();
+  if (sub) {
+    ctx.font = '700 56px "Malgun Gothic", sans-serif';
+    const sy = H - 90;
+    ctx.lineWidth = 10;
+    ctx.strokeStyle = 'rgba(0,0,0,0.6)';
+    ctx.strokeText(sub, baseX, sy);
+    ctx.fillStyle = els.accent.value;
+    ctx.fillText(sub, baseX, sy);
+  }
+}
+
+['input', 'change'].forEach(ev => {
+  Object.values(els).forEach(el => el.addEventListener(ev, draw));
+});
+
+document.getElementById('download').addEventListener('click', () => {
+  cv.toBlob(blob => {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'thumbnail-1920x1080.png';
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  }, 'image/png');
+});
+
+// textarea에 초기값 줄바꿈 반영
+els.title.value = "진짜 이거 하나면\n끝납니다";
+draw();
+</script>
+</body>
+</html>

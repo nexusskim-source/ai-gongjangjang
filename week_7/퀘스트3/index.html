@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>김수경 차장 · 명함</title>
+<style>
+  :root{
+    --pink-900:#7a1140;
+    --pink-700:#a01f52;
+    --pink-500:#e0568b;
+    --pink-300:#f5a3c4;
+    --pink-100:#ffe4ef;
+    --pink-50:#fff5fa;
+    --ink:#3a0c22;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{
+    font-family:"Pretendard","Malgun Gothic","맑은 고딕",system-ui,sans-serif;
+    background:linear-gradient(135deg,#fff0f6,#ffe0ec);
+    color:var(--ink);
+    min-height:100vh;
+    display:flex;flex-direction:column;align-items:center;
+    padding:40px 16px;gap:28px;
+  }
+  .toolbar{display:flex;gap:12px;align-items:center;flex-wrap:wrap;justify-content:center;}
+  .toolbar h1{font-size:18px;color:var(--pink-900);font-weight:800;}
+  .toolbar span{font-size:13px;color:var(--pink-700);}
+  button{
+    background:var(--pink-700);color:#fff;border:none;border-radius:999px;
+    padding:10px 22px;font-size:14px;font-weight:700;cursor:pointer;
+    box-shadow:0 4px 14px rgba(160,31,82,.3);transition:.15s;
+  }
+  button:hover{background:var(--pink-900);transform:translateY(-1px);}
+
+  .cards{display:flex;gap:32px;flex-wrap:wrap;justify-content:center;}
+  .card-wrap{display:flex;flex-direction:column;align-items:center;gap:10px;}
+  .card-label{font-size:12px;font-weight:700;color:var(--pink-700);letter-spacing:.08em;}
+
+  /* 90 x 54 mm */
+  .card{
+    width:90mm;height:54mm;
+    border-radius:4mm;overflow:hidden;position:relative;
+    box-shadow:0 14px 40px rgba(122,17,64,.28);
+    color:#fff;
+  }
+
+  /* ---------- FRONT ---------- */
+  .front{
+    background:
+      radial-gradient(120% 120% at 100% 0%, var(--pink-500) 0%, var(--pink-700) 45%, var(--pink-900) 100%);
+    padding:6mm 7mm;
+    display:flex;flex-direction:column;justify-content:space-between;
+  }
+  .front::after{
+    content:"";position:absolute;right:-14mm;bottom:-14mm;
+    width:44mm;height:44mm;border-radius:50%;
+    background:radial-gradient(circle at 30% 30%, rgba(255,255,255,.22), rgba(255,255,255,0) 70%);
+  }
+  .badge{
+    display:inline-flex;align-items:center;gap:5px;align-self:flex-start;
+    background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.35);
+    padding:2px 9px;border-radius:999px;font-size:8.5px;font-weight:700;
+    letter-spacing:.05em;backdrop-filter:blur(2px);z-index:2;
+  }
+  .badge .dot{width:5px;height:5px;border-radius:50%;background:#ffd6e7;box-shadow:0 0 6px #ffd6e7;}
+  .front .name-row{z-index:2;}
+  .front .name{font-size:30px;font-weight:800;letter-spacing:.02em;line-height:1;}
+  .front .role{font-size:11px;font-weight:600;color:var(--pink-100);margin-top:3px;}
+  .front .tagline{
+    z-index:2;font-size:12.5px;font-weight:700;line-height:1.35;
+    color:#fff;text-shadow:0 1px 6px rgba(0,0,0,.15);
+  }
+  .front .tagline b{color:#ffe08a;}
+  .front .contact{z-index:2;display:flex;align-items:center;gap:7px;font-size:11px;font-weight:600;}
+  .front .contact .ico{
+    width:15px;height:15px;border-radius:50%;background:rgba(255,255,255,.2);
+    display:inline-flex;align-items:center;justify-content:center;font-size:9px;
+  }
+
+  /* ---------- BACK ---------- */
+  .back{
+    background:
+      radial-gradient(120% 120% at 0% 100%, var(--pink-500) 0%, var(--pink-700) 50%, var(--pink-900) 100%);
+    padding:6mm 7mm;
+    display:flex;align-items:center;justify-content:space-between;gap:6mm;
+  }
+  .back::before{
+    content:"";position:absolute;left:-12mm;top:-12mm;
+    width:38mm;height:38mm;border-radius:50%;
+    background:radial-gradient(circle at 70% 70%, rgba(255,255,255,.18), rgba(255,255,255,0) 70%);
+  }
+  .back-left{z-index:2;display:flex;flex-direction:column;gap:5px;max-width:44mm;}
+  .back-left .slogan-sm{font-size:9px;font-weight:700;color:var(--pink-100);letter-spacing:.08em;}
+  .back-left .slogan{font-size:16px;font-weight:800;line-height:1.25;}
+  .back-left .slogan em{font-style:normal;color:#ffe08a;}
+  .back-left .sub{font-size:9.5px;font-weight:500;color:var(--pink-100);line-height:1.4;margin-top:2px;}
+  .qr-box{z-index:2;background:#fff;padding:2.5mm;border-radius:2.5mm;box-shadow:0 6px 16px rgba(0,0,0,.2);text-align:center;}
+  .qr-box img{width:23mm;height:23mm;display:block;}
+  .qr-box .qr-cap{font-size:7px;font-weight:700;color:var(--pink-700);margin-top:1.5mm;letter-spacing:.02em;}
+
+  @media print{
+    @page{size:auto;margin:10mm;}
+    body{background:#fff;padding:0;gap:8mm;}
+    .toolbar{display:none;}
+    .card{box-shadow:none;border:0.2mm solid #eee;}
+    .cards{gap:8mm;}
+  }
+</style>
+</head>
+<body>
+  <div class="toolbar">
+    <h1>김수경 차장 · 명함</h1>
+    <span>90 × 54mm · 앞면 + 뒷면</span>
+    <button onclick="window.print()">🖨️ 인쇄 / PDF 저장</button>
+  </div>
+
+  <div class="cards">
+    <!-- FRONT -->
+    <div class="card-wrap">
+      <div class="card-label">FRONT · 앞면</div>
+      <div class="card front">
+        <span class="badge"><span class="dot"></span>AI AGENT MAKER</span>
+        <div class="name-row">
+          <div class="name">김수경</div>
+          <div class="role">차장 · AI 에이전트 메이커</div>
+        </div>
+        <div class="tagline">AI를 쓰는 사람이 아니라,<br><b>AI 에이전트를 직접 만드는 사람.</b></div>
+        <div class="contact">
+          <span class="ico">📱</span>010-2674-4566
+        </div>
+      </div>
+    </div>
+
+    <!-- BACK -->
+    <div class="card-wrap">
+      <div class="card-label">BACK · 뒷면</div>
+      <div class="card back">
+        <div class="back-left">
+          <div class="slogan-sm">SLOGAN</div>
+          <div class="slogan">AI 에이전트<br><em>메이커</em></div>
+          <div class="sub">일을 대신할 에이전트를<br>기획부터 구현까지, 직접.</div>
+        </div>
+        <div class="qr-box">
+          <img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAf4AAAH+CAIAAADyDftyAAANFElEQVR4nO3dzY0jyRlF0S6hDJFPMoC2lQHySZ5Q69kkZ5AdHV/kPWc7KP4kyYvEAK/j6/1+/wKg5F+7XwAAf5r0A+RIP0CO9APkSD9AjvQD5Eg/QI70A+RIP0DO9/V//vn3f349y+t//130fq8f+Y7rV7Xrea+te1UzX/PMz2jdt/3ET3/X1djl+v266wfIkX6AHOkHyJF+gBzpB8iRfoAc6QfIkX6AHOkHyPmw5p252Ttxg7puK3jiJnPd6nLmYvPEre+u5525qn09rnXu+gFypB8gR/oBcqQfIEf6AXKkHyBH+gFypB8gR/oBcm6tea9ZmU6wbjk5c3W57h3N3HPe+XxP3DY/71t3bd23zl0/QI70A+RIP0CO9APkSD9AjvQD5Eg/QI70A+RIP0DOwjXviWYuCU98Vbued+bVeN5qeuZnNHNxPZO7foAc6QfIkX6AHOkHyJF+gBzpB8iRfoAc6QfIkX6AHGveAzaK686MvfO3617VzP3qrs933Xdy19/eYa/7u7jrB8iRfoAc6QfIkX6AHOkHyJF+gBzpB8iRfoAc6QfIWbjmPXF3d2fBOHPrO/MT9Jrne95KfJ3XyFd1zV0/QI70A+RIP0CO9APkSD9AjvQD5Eg/QI70A+RIP0DOrTXvzDNUd5l5DuqujfEd617zrlOOT/yMdn0n76idF32Hu36AHOkHyJF+gBzpB8iRfoAc6QfIkX6AHOkHyJF+gJzv5505eceJm8yZ29eZ68cTd6Su8++6Vuv+9kTu+gFypB8gR/oBcqQfIEf6AXKkHyBH+gFypB8gR/oBcr5r53Neu35V617zulNDa+eR7nrNMze3uxaq697vzKq8Nv1+7/ytu36AHOkHyJF+gBzpB8iRfoAc6QfIkX6AHOkHyJF+gJwPa96Z+8Y7m9vr533eVnDd887cN6575JmnK8+8zrt++9dOvJLX7jyyu36AHOkHyJF+gBzpB8iRfoAc6QfIkX6AHOkHyJF+gJyv9/v9sA3qLrVTcHctVE88i3jmKdYzl8+1b85r04rYXT9AjvQD5Eg/QI70A+RIP0CO9APkSD9AjvQD5Eg/QM7Cs3nXmblvfN65oLvWrev+dtfKdObu/cRv3cwTg0/krh8gR/oBcqQfIEf6AXKkHyBH+gFypB8gR/oBcqQfIOfD2bwz95y7TsI88SzTazNXpnfMXGzuOm92ndo7et622V0/QI70A+RIP0CO9APkSD9AjvQD5Eg/QI70A+RIP0DOh7N5Z+45Z57NO/PU0HW7yl3n6147cX++6/t84me0618B+Dlwq3/NXT9AjvQD5Eg/QI70A+RIP0CO9APkSD9AjvQD5Eg/QM6ts3l3bUFnruNOPL3T3/4ZJ55Ge+Iu+nnnCb+WvWZ3/QA50g+QI/0AOdIPkCP9ADnSD5Aj/QA50g+QI/0AOR/O5t111uUdM5ex65531yPfsesc45l7Tp/vhE9h5op4HXf9ADnSD5Aj/QA50g+QI/0AOdIPkCP9ADnSD5Aj/QA5t9a869zZv+1ax514Humd5921bp15XvSJK/GZv8FdC/M7Zq7Er7nrB8iRfoAc6QfIkX6AHOkHyJF+gBzpB8iRfoAc6QfIWbjmnXnu64lb0Jn7xpmr6ZknJM88i/jazA3qLq9N73fdb99dP0CO9APkSD9AjvQD5Eg/QI70A+RIP0CO9APkSD9Aztf7/T5uK3jnka/VNop3nPgZzTxDdeZSdOZCdeZv8DVyNX39t+76AXKkHyBH+gFypB8gR/oBcqQfIEf6AXKkHyBH+gFyFp7Ne23mNvLEBePMBfLMtfaJZyCfeK3u/MquH3nmScU/I9fp19z1A+RIP0CO9APkSD9AjvQD5Eg/QI70A+RIP0CO9APkfDib9451O7R1zzvzdNZ1nvd+Z66IZy6uZ76qazPXvOus+6W46wfIkX6AHOkHyJF+gBzpB8iRfoAc6QfIkX6AHOkHyLm15n3eXveOXTvhmRvFmZ9+zcwF8sxzql8jl953nvf6kd31A+RIP0CO9APkSD9AjvQD5Eg/QI70A+RIP0CO9APkLDyb99rMkz9PXKju2ijOXBHvcuI5tyd63nV+bVpNu+sHyJF+gBzpB8iRfoAc6QfIkX6AHOkHyJF+gBzpB8j5PvEc1F2r2nV/O/NqnLicnPndmHka7bWZG/LnfTeurft83fUD5Eg/QI70A+RIP0CO9APkSD9AjvQD5Eg/QI70A+R8P2/PWTurdtfK9MRt5MxPcJ07v98TV8R3/Gz6lwt2/X7d9QPkSD9AjvQD5Eg/QI70A+RIP0CO9APkSD9AjvQD5Cw8m3fmGvCOXWcR13aG68w8TXrXQvXEM5+f142fTb9ud/0AOdIPkCP9ADnSD5Aj/QA50g+QI/0AOdIPkCP9ADlf7/f74j/XzjI9cbE583nvOPG7MfOs2ud9N573zVnn+lNw1w+QI/0AOdIPkCP9ADnSD5Aj/QA50g+QI/0AOdIPkPPhbN5de91dp1meuG/cdTVmnttcO7v12sxfyq5PYde2eSZ3/QA50g+QI/0AOdIPkCP9ADnSD5Aj/QA50g+QI/0AOUPP5p25yTzxfN0TH/nO81478VU97zqf+G8EXJv5jq656wfIkX6AHOkHyJF+gBzpB8iRfoAc6QfIkX6AHOkHyPlwNu8du85fvWPmNvLOtZq5FJ15Cu46J+7Ar+36hdY2xuu46wfIkX6AHOkHyJF+gBzpB8iRfoAc6QfIkX6AHOkHyPlwNu+J67gT95wzT9A98SzTXSvxmavpE7/tux75jpn/+sD187rrB8iRfoAc6QfIkX6AHOkHyJF+gBzpB8iRfoAc6QfI+bDmtcr7+2rn3F6zUP0z1+rEz3fma34duLi25gXgH/A/fABypB8gR/oBcqQfIEf6AXKkHyBH+gFypB8g5/vXgU5cEs7c+q67kieekTvTzJNdn3ci9M/Ik8bXvSp3/QA50g+QI/0AOdIPkCP9ADnSD5Aj/QA50g+QI/0AOQvXvOs2e7uWdet2leve0cyd8LpPf9cWdOae88S97h0zT/2dyV0/QI70A+RIP0CO9APkSD9AjvQD5Eg/QI70A+RIP0DOhzXvur3fOrtO/nzeGnDXqbC7nLgxPvGM3BNPZv7ZtANf9wm66wfIkX6AHOkHyJF+gBzpB8iRfoAc6QfIkX6AHOkHyPl6v99bnnjmKake+Xd9CjM/33XPO/N83efthHf9GwF37PoErXkB+Av/wwcgR/oBcqQfIEf6AXKkHyBH+gFypB8gR/oBcr5P3KHNXIru2qCuM3N1+bznfd72dddr3vU7eo389K+56wfIkX6AHOkHyJF+gBzpB8iRfoAc6QfIkX6AHOkHyPmw5t118ufM5eQuJ66m75j5Gc28VjN37zOt68bPyDX+NXf9ADnSD5Aj/QA50g+QI/0AOdIPkCP9ADnSD5Aj/QA5H9a8d+w6JXXXqaG7NqgnnmW66zzSdVdy3Wve9W1f932e+Tu648SquOsHyJF+gBzpB8iRfoAc6QfIkX6AHOkHyJF+gBzpB8hZuOZdt0LctYzdtcrbdSVnrhB3OfEdnXhm7K4r+TPy277uarjrB8iRfoAc6QfIkX6AHOkHyJF+gBzpB8iRfoAc6QfI+Xq/38edgzpzwbjujNxdp+/uWjCeuEG9tuu04RM971q9Rv5+3fUD5Eg/QI70A+RIP0CO9APkSD9AjvQD5Eg/QI70A+R8WPPW7Fqo7lowzlwgP+95Z57MPPM02pnf9mszN8bWvAD8hf/hA5Aj/QA50g+QI/0AOdIPkCP9ADnSD5Aj/QA53yeu1O6Yufa8duJSdOb3atcSeNcj37nOJ16rme/3NfKX4q4fIEf6AXKkHyBH+gFypB8gR/oBcqQfIEf6AXKkHyDnw5r32rpF3x0nnmX6vKtxx8wF8rUTd9En/n5nrojv2FUGd/0AOdIPkCP9ADnSD5Aj/QA50g+QI/0AOdIPkCP9ADm31rzXdq09Z5q5UD3xeXc98vOs283ueuR1fzvTnSvprh8gR/oBcqQfIEf6AXKkHyBH+gFypB8gR/oBcqQfIGfhmpf5u9ldu+g7z3vi+bozP/2Znvdt/xn5qtz1A+RIP0CO9APkSD9AjvQD5Eg/QI70A+RIP0CO9APkWPP+tt3dzC3orve7629nroh3vaMTT7GeeW7za9knuOt35K4fIEf6AXKkHyBH+gFypB8gR/oBcqQfIEf6AXKkHyBn4Zr3xCXhuu3ctZmPvG5XOXOve83m9u9fjV3L5xP/9o4719ldP0CO9APkSD9AjvQD5Eg/QI70A+RIP0CO9APkSD9Azq0177qV2i4zN3vrlpN3rFs/7rrOte/VHbtW0zNPSL5j11bfXT9AjvQD5Eg/QI70A+RIP0CO9APkSD9AjvQD5Eg/QM7X+/3e/RoA+KPc9QPkSD9AjvQD5Eg/QI70A+RIP0CO9APkSD9AjvQD/Kr5PwcF4gkjVbdiAAAAAElFTkSuQmCC" alt="김수경 연락처 QR" />
+          <div class="qr-cap">스캔 → 연락처 저장</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
