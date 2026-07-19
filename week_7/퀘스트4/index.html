@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Day On · 카페 메뉴판 1080×1350</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Nanum+Myeongjo:wght@400;700;800&family=Noto+Sans+KR:wght@300;400;500;700&display=swap" rel="stylesheet" />
+<style>
+  /* ── 컬러 팔레트 (3색) ──────────────────────────
+     크림 아이보리 · 딥 포레스트 그린 · 피칸(견과) 캐러멜 */
+  :root{
+    --cream:#f4ecdd;      /* 바탕 */
+    --cream-2:#efe5d2;    /* 카드 톤 */
+    --green:#2f3a30;      /* 잉크(제목·본문) */
+    --green-soft:#5c6b58; /* 보조 텍스트 */
+    --nut:#b07338;        /* 강조색(시그니처·포인트) */
+    --nut-soft:#e7d3b8;   /* 강조 배경 틴트 */
+  }
+  *{ box-sizing:border-box; margin:0; padding:0; }
+  body{ background:#2a2620; display:flex; justify-content:center; padding:24px; }
+
+  /* ── A4 비율에 가까운 1080×1350 세로 메뉴판 ── */
+  .menu{
+    width:1080px; height:1350px; background:var(--cream);
+    color:var(--green);
+    font-family:"Noto Sans KR",sans-serif;
+    padding:52px 78px 52px;
+    position:relative;
+    border:1px solid #ded0b6;
+  }
+  /* 얇은 내부 프레임 */
+  .menu::after{
+    content:""; position:absolute; inset:26px;
+    border:1.5px solid #cdbb98; pointer-events:none;
+  }
+
+  /* ── 헤더 ── */
+  .head{ text-align:center; position:relative; z-index:1; }
+  .eyebrow{
+    font-size:18px; letter-spacing:7px; color:var(--nut);
+    font-weight:500; margin-bottom:8px;
+  }
+  .brand{
+    font-family:"Nanum Myeongjo",serif; font-weight:800;
+    font-size:70px; line-height:1; letter-spacing:2px;
+  }
+  .brand .kr{ font-size:29px; font-weight:700; color:var(--green-soft); letter-spacing:8px; display:block; margin-top:9px; }
+  .slogan{
+    font-family:"Nanum Myeongjo",serif; font-style:italic;
+    font-size:22px; color:var(--green-soft); margin-top:11px;
+  }
+  .rule{ display:flex; align-items:center; justify-content:center; gap:16px; margin:16px auto 0; }
+  .rule .ln{ height:1px; width:150px; background:#c3b491; }
+  .rule .dot{ width:9px; height:9px; background:var(--nut); transform:rotate(45deg); }
+
+  /* ── 시그니처 히어로 ── */
+  .signature{
+    display:flex; gap:28px; align-items:stretch;
+    background:var(--nut-soft);
+    border:2px solid var(--nut);
+    border-radius:14px; padding:18px;
+    margin:20px 0 24px; position:relative; z-index:1;
+  }
+  .signature img{
+    width:248px; height:248px; object-fit:cover;
+    border-radius:10px; flex-shrink:0; display:block;
+  }
+  .sig-body{ display:flex; flex-direction:column; justify-content:center; }
+  .sig-badge{
+    align-self:flex-start; background:var(--nut); color:#fff;
+    font-size:15px; font-weight:700; letter-spacing:5px;
+    padding:6px 15px; border-radius:30px; margin-bottom:11px;
+  }
+  .sig-name{
+    font-family:"Nanum Myeongjo",serif; font-weight:800;
+    font-size:48px; color:var(--green); line-height:1.05;
+  }
+  .sig-name .en{ display:block; font-size:21px; font-weight:400; color:var(--nut); letter-spacing:3px; margin-top:6px; }
+  .sig-desc{ font-size:19px; color:var(--green-soft); line-height:1.5; margin:12px 0 14px; max-width:370px; }
+  .sig-price{ font-family:"Nanum Myeongjo",serif; font-size:38px; font-weight:800; color:var(--nut); }
+  .sig-price small{ font-size:22px; font-weight:400; }
+
+  /* ── 메뉴 2단 ── */
+  .cols{ display:flex; gap:52px; position:relative; z-index:1; }
+  .col{ flex:1; }
+  .cat{ margin-bottom:22px; }
+  .cat:last-child{ margin-bottom:0; }
+  .cat-h{
+    display:flex; align-items:baseline; gap:12px;
+    border-bottom:2px solid var(--green);
+    padding-bottom:7px; margin-bottom:13px;
+  }
+  .cat-h .ko{ font-family:"Nanum Myeongjo",serif; font-weight:800; font-size:29px; color:var(--green); }
+  .cat-h .en{ font-size:14px; letter-spacing:4px; color:var(--nut); font-weight:500; text-transform:uppercase; }
+
+  .item{ display:flex; align-items:baseline; margin-bottom:11px; }
+  .item .nm{ font-size:21px; font-weight:500; color:var(--green); white-space:nowrap; }
+  .item .nm .star{ color:var(--nut); margin-left:5px; font-size:18px; }
+  .item .lead{ flex:1; border-bottom:2px dotted #c3b491; margin:0 10px 6px; }
+  .item .pr{ font-size:21px; font-weight:700; color:var(--green); white-space:nowrap; }
+  .item .desc{ font-size:14px; color:var(--green-soft); margin-top:2px; line-height:1.35; margin-bottom:11px; }
+  .item-wrap .item{ margin-bottom:2px; }
+
+  /* ── 푸터 ── */
+  .foot{
+    position:absolute; left:78px; right:78px; bottom:52px;
+    text-align:center; z-index:1;
+  }
+  .foot .fr{ height:1px; background:#c3b491; margin-bottom:18px; }
+  .foot .info{ font-size:17px; color:var(--green-soft); letter-spacing:1px; }
+  .foot .info b{ color:var(--green); font-weight:700; }
+  .foot .tag{ font-family:"Nanum Myeongjo",serif; font-style:italic; font-size:19px; color:var(--nut); margin-top:8px; }
+</style>
+</head>
+<body>
+  <div class="menu">
+    <!-- 헤더 -->
+    <div class="head">
+      <div class="eyebrow">연희동 골목 · 자연주의 사랑방</div>
+      <div class="brand">Day On<span class="kr">데 이 온</span></div>
+      <div class="slogan">“당신의 하루가 켜지는 곳”</div>
+      <div class="rule"><span class="ln"></span><span class="dot"></span><span class="ln"></span></div>
+    </div>
+
+    <!-- 시그니처 -->
+    <div class="signature">
+      <img src="시그니처_피칸아인슈페너.jpg" alt="피칸 아인슈페너" />
+      <div class="sig-body">
+        <div class="sig-badge">SIGNATURE</div>
+        <div class="sig-name">피칸 아인슈페너<span class="en">Pecan Einspänner</span></div>
+        <div class="sig-desc">진한 에스프레소 위에 고소한 피칸 크림을 얹고 캔디드 피칸을 올린 데이온의 얼굴.</div>
+        <div class="sig-price">6,500<small>원</small></div>
+      </div>
+    </div>
+
+    <!-- 메뉴 2단 -->
+    <div class="cols">
+      <!-- 왼쪽 -->
+      <div class="col">
+        <div class="cat">
+          <div class="cat-h"><span class="ko">커피</span><span class="en">Coffee</span></div>
+
+          <div class="item-wrap">
+            <div class="item"><span class="nm">피칸 아인슈페너<span class="star">★</span></span><span class="lead"></span><span class="pr">6,500</span></div>
+            <div class="desc">고소한 피칸 크림 · 시그니처</div>
+          </div>
+          <div class="item-wrap">
+            <div class="item"><span class="nm">너츠라떼</span><span class="lead"></span><span class="pr">5,500</span></div>
+            <div class="desc">달콤 고소한 견과 라떼 · 대표 메뉴</div>
+          </div>
+          <div class="item"><span class="nm">아메리카노</span><span class="lead"></span><span class="pr">4,000</span></div>
+          <div class="item"><span class="nm">카페라떼</span><span class="lead"></span><span class="pr">4,800</span></div>
+          <div class="item"><span class="nm">디카페인 아메리카노</span><span class="lead"></span><span class="pr">4,500</span></div>
+        </div>
+
+        <div class="cat">
+          <div class="cat-h"><span class="ko">논커피</span><span class="en">Non-Coffee</span></div>
+          <div class="item-wrap">
+            <div class="item"><span class="nm">흑임자 라떼</span><span class="lead"></span><span class="pr">5,800</span></div>
+            <div class="desc">국산 흑임자 · 진한 고소함</div>
+          </div>
+          <div class="item"><span class="nm">유기농 캐모마일</span><span class="lead"></span><span class="pr">5,000</span></div>
+          <div class="item"><span class="nm">제철 자몽 에이드</span><span class="lead"></span><span class="pr">6,000</span></div>
+        </div>
+      </div>
+
+      <!-- 오른쪽 -->
+      <div class="col">
+        <div class="cat">
+          <div class="cat-h"><span class="ko">디저트 · 베이커리</span><span class="en">Dessert</span></div>
+
+          <div class="item-wrap">
+            <div class="item"><span class="nm">피칸파이</span><span class="lead"></span><span class="pr">6,000</span></div>
+            <div class="desc">“여기 오면 이건 꼭” · 견과 테마</div>
+          </div>
+          <div class="item-wrap">
+            <div class="item"><span class="nm">리코타 치아바타 샌드위치</span><span class="lead"></span><span class="pr">8,500</span></div>
+            <div class="desc">리코타 · 바질 · 토마토</div>
+          </div>
+          <div class="item"><span class="nm">올리브 치아바타</span><span class="lead"></span><span class="pr">4,000</span></div>
+        </div>
+
+        <div class="cat">
+          <div class="cat-h"><span class="ko">간판 세트</span><span class="en">Set</span></div>
+          <div class="item-wrap">
+            <div class="item"><span class="nm">너츠라떼 + 피칸파이</span><span class="lead"></span><span class="pr">8,500</span></div>
+            <div class="desc">달콤·고소한 대표 세트</div>
+          </div>
+          <div class="item-wrap">
+            <div class="item"><span class="nm">피칸 아인슈페너 + 피칸파이</span><span class="lead"></span><span class="pr">9,000</span></div>
+            <div class="desc">비주얼 시그니처 세트 (SNS)</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 푸터 -->
+    <div class="foot">
+      <div class="fr"></div>
+      <div class="info"><b>서울 서대문구 연희동</b> 골목 안 &nbsp;·&nbsp; 매일 <b>08:00 – 22:00</b> &nbsp;·&nbsp; @dayon.cafe</div>
+      <div class="tag">골목에서 한 숨 돌리는 시간, 데이온</div>
+    </div>
+  </div>
+</body>
+</html>
