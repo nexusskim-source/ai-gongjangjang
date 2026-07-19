@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>BACHA COFFEE · 인스타 광고 카드 1080×1080</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;600&family=Cinzel+Decorative:wght@700;900&display=swap" rel="stylesheet" />
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: "Malgun Gothic", "맑은 고딕", -apple-system, sans-serif;
+    background: #14100c;
+    color: #efe7d6;
+    display: flex;
+    min-height: 100vh;
+  }
+  .panel {
+    width: 330px; flex-shrink: 0; padding: 24px 20px;
+    background: #1c1811; border-right: 1px solid #35301f;
+    overflow-y: auto; height: 100vh;
+  }
+  .panel h1 { font-size: 17px; margin: 0 0 2px; letter-spacing: .5px; }
+  .panel .sub { font-size: 11px; color: #a9977a; margin-bottom: 20px; letter-spacing: 2px; }
+  .field { margin-bottom: 15px; }
+  .field label { display: block; font-size: 11px; color: #b7a684; margin-bottom: 6px; letter-spacing: .5px; }
+  .field input[type="text"], .field textarea, .field select {
+    width: 100%; background: #0f0c08; border: 1px solid #3a3320;
+    border-radius: 7px; color: #efe7d6; padding: 9px 11px;
+    font-size: 13px; font-family: inherit;
+  }
+  .field textarea { resize: vertical; min-height: 50px; }
+  .field input[type="file"] { width: 100%; font-size: 12px; color: #cdbf9f; }
+  .field input[type="range"] { width: 100%; }
+  .btn {
+    width: 100%; padding: 13px; border: none; border-radius: 9px;
+    font-size: 14px; font-weight: 700; cursor: pointer; margin-top: 6px;
+    letter-spacing: .5px;
+  }
+  .btn-primary { background: #df7b01; color: #17110a; }
+  .btn-primary:hover { background: #f08a12; }
+  .ghost {
+    width: 100%; padding: 9px; border-radius: 7px; border: 1px solid #3a3320;
+    background: #0f0c08; color: #cdbf9f; font-size: 12px; cursor: pointer;
+  }
+  .ghost:hover { border-color: #df7b01; }
+  .hint { font-size: 11px; color: #7c6f56; margin-top: 12px; line-height: 1.6; }
+  .stage {
+    flex: 1; display: flex; align-items: center; justify-content: center;
+    padding: 32px; overflow: auto;
+  }
+  .canvas-wrap { box-shadow: 0 16px 50px rgba(0,0,0,.6); line-height: 0; }
+  canvas { display: block; width: 620px; height: 620px; max-width: 100%; }
+</style>
+</head>
+<body>
+  <div class="panel">
+    <h1>BACHA COFFEE</h1>
+    <div class="sub">INSTAGRAM · 1080 × 1080</div>
+
+    <div class="field">
+      <label>무드 (브랜드 배경)</label>
+      <select id="mood">
+        <option value="marigold">마리골드 (오렌지 바탕 · 시그니처)</option>
+        <option value="cream">크림 (아이보리 바탕)</option>
+        <option value="noir">느와르 (블랙 바탕)</option>
+      </select>
+    </div>
+
+    <div class="field">
+      <label>상단 워드마크</label>
+      <input type="text" id="brand" value="BACHA COFFEE" />
+    </div>
+    <div class="field">
+      <label>브랜드 서브라인</label>
+      <input type="text" id="tagline" value="THE HOUSE OF COFFEE · SINCE 1910" />
+    </div>
+    <div class="field">
+      <label>메인 카피 (3~7단어 · 줄바꿈 Enter)</label>
+      <textarea id="headline">오늘의 커피,\n오늘의 품격</textarea>
+    </div>
+    <div class="field">
+      <label>서브 카피</label>
+      <input type="text" id="subcopy" value="세계 35개국에서 온 200가지 커피" />
+    </div>
+    <div class="field">
+      <label>CTA 버튼</label>
+      <input type="text" id="cta" value="컬렉션 둘러보기" />
+    </div>
+
+    <div class="field">
+      <label>비주얼</label>
+      <select id="visual">
+        <option value="cup">골드 커피잔 아이콘</option>
+        <option value="pot">골드 커피팟 아이콘</option>
+        <option value="none">없음 (여백 강조)</option>
+      </select>
+    </div>
+
+    <div class="field">
+      <label>배경 사진 (선택 · 올리면 무드 위에 덮임)</label>
+      <input type="file" id="bgImage" accept="image/*" />
+      <button class="ghost" id="clearImage" style="margin-top:8px;">사진 제거</button>
+    </div>
+
+    <button class="btn btn-primary" id="download">PNG로 저장 (1080×1080)</button>
+    <div class="hint">
+      바샤커피 실제 색 · 마리골드 오렌지(#DF7B01) + 블랙 + 크림.<br />
+      입력하면 미리보기가 즉시 갱신됩니다.
+    </div>
+  </div>
+
+  <div class="stage">
+    <div class="canvas-wrap">
+      <canvas id="cv" width="1080" height="1080"></canvas>
+    </div>
+  </div>
+
+<script>
+const cv = document.getElementById('cv');
+const ctx = cv.getContext('2d');
+const S = 1080;
+
+// 바샤커피 실제 브랜드 색 (namu 로고 샘플: 마리골드 오렌지 #DF7B01 + 블랙 + 크림)
+const MARIGOLD = '#df7b01';
+const INKBLK   = '#17110a';
+const CREAM    = '#f7f1e3';
+const NOIR     = '#141210';
+const SUBBRN   = '#7a5a2e';
+const GOLD     = '#c9a24b';
+
+// 금빛 세로 그라데이션 (워드마크용)
+function goldGrad(y0, y1) {
+  const g = ctx.createLinearGradient(0, y0, 0, y1);
+  g.addColorStop(0.00, '#f6e6ac');
+  g.addColorStop(0.35, '#e3c574');
+  g.addColorStop(0.55, '#c9a24b');
+  g.addColorStop(0.80, '#a97f2c');
+  g.addColorStop(1.00, '#e9cf88');
+  return g;
+}
+
+const els = {
+  mood: document.getElementById('mood'),
+  brand: document.getElementById('brand'),
+  tagline: document.getElementById('tagline'),
+  headline: document.getElementById('headline'),
+  subcopy: document.getElementById('subcopy'),
+  cta: document.getElementById('cta'),
+  visual: document.getElementById('visual'),
+};
+
+// 무드별 색 팔레트 (mark=워드마크/푸터, line=프레임·오너먼트·아이콘)
+function palette() {
+  switch (els.mood.value) {
+    // 시그니처: 마리골드 오렌지 바탕 + 블랙
+    case 'marigold': return { bg: MARIGOLD, mark: INKBLK, line: INKBLK,   ink: INKBLK, subInk: '#4a3413', ctaBg: INKBLK,   ctaInk: CREAM };
+    // 느와르: 블랙 바탕 + 오렌지
+    case 'noir':     return { bg: NOIR,     mark: MARIGOLD, line: MARIGOLD, ink: CREAM,  subInk: '#c99a55', ctaBg: MARIGOLD, ctaInk: INKBLK };
+    // 크림: 아이보리 바탕 + 오렌지 포인트
+    default:         return { bg: CREAM,    mark: INKBLK, line: MARIGOLD,  ink: INKBLK, subInk: SUBBRN,    ctaBg: MARIGOLD, ctaInk: INKBLK };
+  }
+}
+
+let bgImg = null;
+document.getElementById('bgImage').addEventListener('change', (e) => {
+  const f = e.target.files && e.target.files[0];
+  if (!f) return;
+  const img = new Image();
+  img.onload = () => { bgImg = img; draw(); };
+  img.src = URL.createObjectURL(f);
+});
+document.getElementById('clearImage').addEventListener('click', () => {
+  bgImg = null; document.getElementById('bgImage').value = ''; draw();
+});
+
+function serif(weight, size) {
+  return weight + ' ' + size + 'px Georgia, "Times New Roman", "Batang", "바탕", serif';
+}
+function drawCover(img) {
+  const ir = img.width / img.height, cr = 1;
+  let dw, dh, dx, dy;
+  if (ir > cr) { dh = S; dw = S * ir; dx = (S - dw) / 2; dy = 0; }
+  else { dw = S; dh = S / ir; dx = 0; dy = (S - dh) / 2; }
+  ctx.drawImage(img, dx, dy, dw, dh);
+}
+function letterText(text, x, y, spacing) {
+  const prev = ctx.letterSpacing;
+  try { ctx.letterSpacing = spacing + 'px'; } catch (e) {}
+  ctx.fillText(text, x, y);
+  try { ctx.letterSpacing = prev; } catch (e) {}
+}
+
+// 골드 커피잔 아이콘
+function drawCup(cx, cy, s, color) {
+  ctx.save();
+  ctx.strokeStyle = color; ctx.lineWidth = s * 0.045; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  // 김
+  for (let i = -1; i <= 1; i++) {
+    ctx.beginPath();
+    const sx = cx + i * s * 0.28;
+    ctx.moveTo(sx, cy - s * 0.62);
+    ctx.bezierCurveTo(sx - s*0.12, cy - s*0.78, sx + s*0.12, cy - s*0.88, sx, cy - s*1.02);
+    ctx.stroke();
+  }
+  // 잔 몸통
+  ctx.beginPath();
+  ctx.moveTo(cx - s*0.5, cy - s*0.35);
+  ctx.lineTo(cx + s*0.5, cy - s*0.35);
+  ctx.lineTo(cx + s*0.36, cy + s*0.3);
+  ctx.quadraticCurveTo(cx + s*0.32, cy + s*0.42, cx + s*0.18, cy + s*0.42);
+  ctx.lineTo(cx - s*0.18, cy + s*0.42);
+  ctx.quadraticCurveTo(cx - s*0.32, cy + s*0.42, cx - s*0.36, cy + s*0.3);
+  ctx.closePath(); ctx.stroke();
+  // 손잡이
+  ctx.beginPath();
+  ctx.moveTo(cx + s*0.46, cy - s*0.22);
+  ctx.bezierCurveTo(cx + s*0.78, cy - s*0.28, cx + s*0.78, cy + s*0.18, cx + s*0.42, cy + s*0.12);
+  ctx.stroke();
+  // 받침
+  ctx.beginPath();
+  ctx.moveTo(cx - s*0.62, cy + s*0.56);
+  ctx.lineTo(cx + s*0.62, cy + s*0.56);
+  ctx.stroke();
+  ctx.restore();
+}
+
+// 골드 커피팟 아이콘
+function drawPot(cx, cy, s, color) {
+  ctx.save();
+  ctx.strokeStyle = color; ctx.lineWidth = s * 0.045; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  // 뚜껑 꼭지
+  ctx.beginPath(); ctx.arc(cx, cy - s*0.68, s*0.07, 0, Math.PI*2); ctx.stroke();
+  // 몸통
+  ctx.beginPath();
+  ctx.moveTo(cx - s*0.34, cy - s*0.5);
+  ctx.lineTo(cx + s*0.34, cy - s*0.5);
+  ctx.lineTo(cx + s*0.44, cy + s*0.4);
+  ctx.quadraticCurveTo(cx + s*0.46, cy + s*0.56, cx + s*0.28, cy + s*0.56);
+  ctx.lineTo(cx - s*0.28, cy + s*0.56);
+  ctx.quadraticCurveTo(cx - s*0.46, cy + s*0.56, cx - s*0.44, cy + s*0.4);
+  ctx.closePath(); ctx.stroke();
+  // 뚜껑 라인
+  ctx.beginPath(); ctx.moveTo(cx - s*0.34, cy - s*0.5); ctx.quadraticCurveTo(cx, cy - s*0.62, cx + s*0.34, cy - s*0.5); ctx.stroke();
+  // 주둥이
+  ctx.beginPath();
+  ctx.moveTo(cx + s*0.4, cy - s*0.28);
+  ctx.quadraticCurveTo(cx + s*0.72, cy - s*0.34, cx + s*0.74, cy - s*0.62);
+  ctx.stroke();
+  // 손잡이
+  ctx.beginPath();
+  ctx.moveTo(cx - s*0.4, cy - s*0.26);
+  ctx.bezierCurveTo(cx - s*0.74, cy - s*0.3, cx - s*0.74, cy + s*0.24, cx - s*0.36, cy + s*0.2);
+  ctx.stroke();
+  ctx.restore();
+}
+
+function ornament(cx, y, w, color) {
+  ctx.save();
+  ctx.strokeStyle = color; ctx.fillStyle = color; ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.moveTo(cx - w/2, y); ctx.lineTo(cx - 14, y); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(cx + 14, y); ctx.lineTo(cx + w/2, y); ctx.stroke();
+  ctx.save(); ctx.translate(cx, y); ctx.rotate(Math.PI/4);
+  ctx.fillRect(-5, -5, 10, 10); ctx.restore();
+  ctx.restore();
+}
+
+function draw() {
+  const p = palette();
+  const cx = S / 2;
+
+  // 배경
+  ctx.fillStyle = p.bg; ctx.fillRect(0, 0, S, S);
+  if (bgImg) {
+    drawCover(bgImg);
+    // 무드 색으로 덮어 톤 유지
+    ctx.fillStyle = (els.mood.value === 'marigold')
+      ? 'rgba(223,123,1,0.84)' : (els.mood.value === 'noir')
+      ? 'rgba(20,18,16,0.80)' : 'rgba(247,241,227,0.84)';
+    ctx.fillRect(0, 0, S, S);
+  }
+
+  // 이중 프레임 (바깥=브랜드색, 안쪽=금빛)
+  ctx.strokeStyle = p.line;
+  ctx.lineWidth = 2; ctx.strokeRect(50, 50, S - 100, S - 100);
+  ctx.strokeStyle = GOLD;
+  ctx.lineWidth = 1.5; ctx.strokeRect(62, 62, S - 124, S - 124);
+
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'alphabetic';
+
+  // 워드마크 (화려한 장식 세리프 + 금빛 그라데이션)
+  const wm = els.brand.value.toUpperCase();
+  const wmY = 196;
+  ctx.save();
+  ctx.font = '700 46px "Cinzel Decorative", Georgia, "Batang", serif';
+  try { ctx.letterSpacing = '3px'; } catch (e) {}
+  ctx.lineJoin = 'round';
+  ctx.lineWidth = 3.2;
+  ctx.strokeStyle = (els.mood.value === 'noir') ? 'rgba(0,0,0,0.5)' : 'rgba(23,17,10,0.55)';
+  ctx.strokeText(wm, cx, wmY);
+  ctx.fillStyle = goldGrad(wmY - 42, wmY + 8);
+  ctx.fillText(wm, cx, wmY);
+  ctx.restore();
+
+  // 서브라인 (Cinzel 캡스)
+  ctx.fillStyle = p.subInk;
+  ctx.font = '500 17px "Cinzel", Georgia, serif';
+  letterText(els.tagline.value.toUpperCase(), cx, 232, 3);
+
+  // 오너먼트 (금빛)
+  ornament(cx, 274, 240, GOLD);
+
+  // 비주얼 아이콘
+  let headTop = 430;
+  if (els.visual.value === 'cup') { drawCup(cx, 375, 95, p.line); headTop = 500; }
+  else if (els.visual.value === 'pot') { drawPot(cx, 375, 95, p.line); headTop = 500; }
+  else { headTop = 470; }
+
+  // 메인 카피
+  ctx.fillStyle = p.ink;
+  const lines = els.headline.value.split('\n');
+  const hSize = lines.length > 1 ? 92 : 104;
+  ctx.font = serif('600', hSize);
+  const lh = hSize * 1.18;
+  let y = headTop + hSize;
+  for (const ln of lines) { ctx.fillText(ln, cx, y); y += lh; }
+
+  // 서브 카피
+  const subY = y + 6;
+  ctx.fillStyle = p.subInk;
+  ctx.font = '400 27px Georgia, "Batang", serif';
+  letterText(els.subcopy.value, cx, subY, 1);
+
+  // 오너먼트 (금빛)
+  ornament(cx, subY + 44, 160, GOLD);
+
+  // CTA 버튼
+  const cta = els.cta.value.trim();
+  if (cta) {
+    ctx.font = serif('600', 30);
+    const label = cta + '   →';
+    const tw = ctx.measureText(label).width;
+    const padX = 46, bh = 76;
+    const bw = Math.max(tw + padX * 2, 300);
+    const bx = cx - bw / 2, by = 880;
+    ctx.fillStyle = p.ctaBg;
+    ctx.beginPath();
+    const r = bh / 2;
+    ctx.moveTo(bx + r, by);
+    ctx.arcTo(bx + bw, by, bx + bw, by + bh, r);
+    ctx.arcTo(bx + bw, by + bh, bx, by + bh, r);
+    ctx.arcTo(bx, by + bh, bx, by, r);
+    ctx.arcTo(bx, by, bx + bw, by, r);
+    ctx.closePath(); ctx.fill();
+    ctx.fillStyle = p.ctaInk;
+    ctx.textBaseline = 'middle';
+    letterText(label, cx, by + bh / 2 + 2, 2);
+    ctx.textBaseline = 'alphabetic';
+  }
+
+  // 푸터 (금빛 · Cinzel)
+  ctx.fillStyle = GOLD;
+  ctx.font = '500 15px "Cinzel", Georgia, serif';
+  letterText('MARRAKECH · SINGAPORE · SINCE 1910', cx, 1012, 3);
+}
+
+['input', 'change'].forEach(ev =>
+  Object.values(els).forEach(el => el.addEventListener(ev, draw))
+);
+
+document.getElementById('download').addEventListener('click', () => {
+  cv.toBlob(b => {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(b);
+    a.download = 'bacha-coffee-ad-1080x1080.png';
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  }, 'image/png');
+});
+
+// 초기 줄바꿈 반영
+els.headline.value = "오늘의 커피,\n오늘의 품격";
+draw();
+
+// 장식 웹폰트(Cinzel)가 로드되면 다시 그려 반영
+if (document.fonts && document.fonts.load) {
+  Promise.all([
+    document.fonts.load('700 46px "Cinzel Decorative"'),
+    document.fonts.load('500 17px "Cinzel"')
+  ]).then(() => document.fonts.ready).then(draw).catch(() => {});
+}
+</script>
+</body>
+</html>
