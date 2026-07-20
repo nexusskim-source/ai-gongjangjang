@@ -150,6 +150,30 @@ async function curatedNearby(user) {
 }
 const tokenMatch = (keywords, q) => { if (!q) return true; const qq = q.replace(/\s+/g, ""); return (keywords || []).some((k) => { const kk = k.replace(/\s+/g, ""); return kk.includes(qq) || qq.includes(kk); }); };
 
+// 카페/디저트 의도 검색 여부 — 큐레이션(식객·수요미식회)은 전부 식당이라, 카페 검색엔 섞지 않는다.
+const CAFE_HINT = /카페|디저트|커피|베이커리|브런치|빵집|로스터리/;
+const isCafeQuery = (q) => CAFE_HINT.test(q || "");
+
+// 업종(카테고리) 키별 대표 키워드 — 큐레이션의 category 문자열을 선택 업종에 맞게 거른다.
+const CAT_KW = {
+  korean: ["한식", "한정식", "백반", "곰탕", "설렁탕", "순댓국", "순대", "국밥", "해장", "찌개", "전골", "순두부", "김치", "동태", "닭곰탕", "보쌈", "족발", "낙지", "대게", "해물", "해산물", "남도", "가정식", "백숙", "생선구이", "감자국", "한우", "비빔밥", "쌈밥"],
+  jp: ["일식", "일본", "라멘", "소바", "우동", "돈카츠", "돈까스", "스시", "초밥", "이자카야", "사시미", "오마카세", "모츠나베", "텐동", "규동"],
+  cn: ["중식", "중국", "탕수육", "짜장", "짬뽕", "마라", "양꼬치", "딤섬", "훠궈"],
+  western: ["양식", "이탈리", "파스타", "피자", "스테이크", "브런치", "버거", "프렌치", "스페인", "다국적", "레스토랑", "비스트로"],
+  meat: ["고기", "구이", "갈비", "삼겹", "곱창", "막창", "양고기", "소갈비", "한우", "바베큐", "정육", "양꼬치", "불고기"],
+  cafe: ["카페", "커피", "베이커리", "브런치", "로스터리"],
+  dessert: ["디저트", "베이커리", "빵", "케이크", "도넛", "아이스크림", "마카롱", "크레페", "젤라또", "와플"],
+  noodle: ["국수", "냉면", "분식", "칼국수", "콩국수", "소바", "라멘", "우동", "떡볶이", "쌀국수", "면", "만두", "메밀", "막국수"],
+};
+// 선택한 업종에 맞는 큐레이션만 남긴다. 업종 미선택이면 전체 유지, 카페/디저트면 식당 큐레이션 없음.
+function filterCuratedByCat(list, cat) {
+  if (!cat) return list;
+  if (cat === "cafe" || cat === "dessert") return [];
+  const kw = CAT_KW[cat];
+  if (!kw) return list;
+  return list.filter((c) => kw.some((k) => (c.category || "").includes(k)));
+}
+
 // ── 공개 핸들러 ──────────────────────────────────────────
 async function handleHome(lat, lng) {
   const user = { lat, lng };
@@ -160,15 +184,17 @@ async function handleHome(lat, lng) {
   ]);
   return { naverOn: NAVER_ON, popular: popular.slice(0, 8), cafes: cafes.slice(0, 8), sikgaek: curated.sikgaek, sumi: curated.sumi };
 }
-async function handleNearby(lat, lng, q, open, parking) {
+async function handleNearby(lat, lng, q, open, parking, cat) {
   const user = { lat, lng };
   let google = [], googleError = null;
   try { google = await googleNearby(user, q || "맛집", open, parking); } catch (e) { googleError = e.message; }
-  const { sikgaek, sumi } = await curatedNearby(user).catch(() => ({ sikgaek: [], sumi: [] }));
+  // 카페/디저트면 식당 큐레이션 제외, 그 외 업종이면 선택 업종에 맞는 큐레이션만 남긴다
+  let { sikgaek, sumi } = isCafeQuery(q) ? { sikgaek: [], sumi: [] } : await curatedNearby(user).catch(() => ({ sikgaek: [], sumi: [] }));
+  sikgaek = filterCuratedByCat(sikgaek, cat); sumi = filterCuratedByCat(sumi, cat);
   const fS = applyFlags(sikgaek, open, parking), fU = applyFlags(sumi, open, parking);
   return { mode: "nearby", naverOn: NAVER_ON, counts: { sikgaek: fS.length, sumi: fU.length, google: google.length }, sikgaek: fS, sumi: fU, google, googleError };
 }
-async function handleRegion(region, q, open, parking) {
+async function handleRegion(region, q, open, parking, cat) {
   const places = loadPlaces();
   const pick = (src) => places.filter((p) => p.source === src && (tokenMatch(p.regionKeywords, region) || tokenMatch([p.region], region)));
   let google = [], googleError = null;
@@ -177,9 +203,12 @@ async function handleRegion(region, q, open, parking) {
     google = (await placesSearch(gq, 20)).map(normGoogle).filter((p) => p.reviews >= 20).sort((a, b) => (b.rating || 0) - (a.rating || 0) || b.reviews - a.reviews);
     google = applyFlags(google, open, parking).slice(0, 15);
   } catch (e) { googleError = e.message; }
-  let [sikgaek, sumi] = await Promise.all([Promise.all(pick("식객").map(enrichCurated)), Promise.all(pick("수요미식회").map(enrichCurated))]);
-  sikgaek = applyFlags(sikgaek, open, parking).sort((a, b) => (b.rating || 0) - (a.rating || 0));
-  sumi = applyFlags(sumi, open, parking).sort((a, b) => (b.rating || 0) - (a.rating || 0));
+  // 카페/디저트면 식당 큐레이션 제외, 그 외 업종이면 선택 업종에 맞는 큐레이션만 남긴다
+  let [sikgaek, sumi] = isCafeQuery(q)
+    ? [[], []]
+    : await Promise.all([Promise.all(pick("식객").map(enrichCurated)), Promise.all(pick("수요미식회").map(enrichCurated))]);
+  sikgaek = applyFlags(filterCuratedByCat(sikgaek, cat), open, parking).sort((a, b) => (b.rating || 0) - (a.rating || 0));
+  sumi = applyFlags(filterCuratedByCat(sumi, cat), open, parking).sort((a, b) => (b.rating || 0) - (a.rating || 0));
   return { mode: "region", region, naverOn: NAVER_ON, counts: { sikgaek: sikgaek.length, sumi: sumi.length, google: google.length }, sikgaek, sumi, google, googleError };
 }
 async function iploc(clientIp) {

@@ -572,6 +572,7 @@ function App() {
     if (sit && sit.q) parts.push(sit.q);
     return {
       q: parts.join(" ").trim(),
+      cat: category || "",
       open: sit && sit.flag === "open" ? "1" : "",
       parking: sit && sit.flag === "parking" ? "1" : "",
     };
@@ -581,13 +582,14 @@ function App() {
   const discover = useCallback(async (where) => {
     setView("results"); setLoading(true); setError(""); setResults(null); setMapSel(0); setResultTab("all");
     setLastCond({ situation, category });
-    const { q, open, parking } = buildParams();
+    const { q, cat, open, parking } = buildParams();
+    const catP = cat ? `&cat=${encodeURIComponent(cat)}` : "";
     try {
       let j;
       if (where.type === "geo") {
-        j = await getJSON(`/api/nearby?lat=${where.lat}&lng=${where.lng}` + (q ? `&q=${encodeURIComponent(q)}` : "") + (open ? "&open=1" : "") + (parking ? "&parking=1" : ""));
+        j = await getJSON(`/api/nearby?lat=${where.lat}&lng=${where.lng}` + (q ? `&q=${encodeURIComponent(q)}` : "") + catP + (open ? "&open=1" : "") + (parking ? "&parking=1" : ""));
       } else {
-        j = await getJSON(`/api/search?region=${encodeURIComponent(where.region)}` + (q ? `&q=${encodeURIComponent(q)}` : "") + (open ? "&open=1" : "") + (parking ? "&parking=1" : ""));
+        j = await getJSON(`/api/search?region=${encodeURIComponent(where.region)}` + (q ? `&q=${encodeURIComponent(q)}` : "") + catP + (open ? "&open=1" : "") + (parking ? "&parking=1" : ""));
         setRecent((r) => [where.region, ...r.filter((x) => x !== where.region)].slice(0, 8));
       }
       setResults(j);
