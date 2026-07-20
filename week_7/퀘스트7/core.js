@@ -47,6 +47,7 @@ const G_FIELDS = [
   "places.displayName", "places.rating", "places.userRatingCount", "places.formattedAddress",
   "places.googleMapsUri", "places.location", "places.primaryTypeDisplayName", "places.types",
   "places.priceLevel", "places.currentOpeningHours", "places.photos", "places.parkingOptions",
+  "places.allowsDogs",
 ].join(",");
 
 async function placesSearch(textQuery, pageSize = 20, bias = null) {
@@ -78,6 +79,7 @@ function normGoogle(p) {
     category: p.primaryTypeDisplayName?.text || "", types: p.types || [],
     price: p.priceLevel != null ? (PRICE_MAP[p.priceLevel] ?? null) : null,
     openNow: open === undefined ? null : open, parking, photo: firstPhoto(p),
+    petOk: p.allowsDogs === undefined ? null : p.allowsDogs,
     lat: p.location?.latitude ?? null, lng: p.location?.longitude ?? null,
   };
 }
@@ -120,7 +122,7 @@ async function enrichCurated(c) {
   return {
     name: c.name, region: c.region, category: c.category, source: c.source, reason: c.reason, episode: c.episode || "",
     rating: g.rating ?? null, reviews: g.reviews ?? 0, address: g.address || c.region, mapUri: g.mapUri || curatedNaver(c),
-    price: g.price ?? null, openNow: g.openNow ?? null, parking: g.parking ?? null, photo: g.photo ?? null,
+    price: g.price ?? null, openNow: g.openNow ?? null, parking: g.parking ?? null, petOk: g.petOk ?? null, photo: g.photo ?? null,
     lat: g.lat ?? null, lng: g.lng ?? null,
   };
 }

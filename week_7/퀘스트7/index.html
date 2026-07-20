@@ -6,18 +6,35 @@
 <title>여기어때 · 내 주변 맛집·카페 발견</title>
 <meta name="description" content="내 위치 기준으로 주변 맛집·카페를 상황(데이트·혼밥·작업 등)과 취향에 맞게 찾아주는 앱. 구글 평점 + 수요미식회·식객 방송 맛집 큐레이션." />
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%93%8D%3C/text%3E%3C/svg%3E" />
+<link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.min.css" />
 <script src="https://cdn.tailwindcss.com"></script>
 <script>
   tailwind.config = {
     theme: { extend: {
       colors: {
-        brand: "#0f9d6f", brandDark: "#0b7d59", brandSoft: "#e8f6f0",
-        ink: "#1b1e1c", sub: "#6b7280", line: "#ededec", bg: "#fafafa",
-        warn: "#b4690e", danger: "#c0392b",
+        brand: "#0f9d6f", brandDark: "#0b7d59", brandSoft: "#e6f5ee",
+        ink: "#111827",    // 핵심 제목 (대비 최상)
+        body: "#374151",   // 일반 본문
+        sub: "#5f6b7a",    // 보조정보 (AA 확보)
+        muted: "#7a8492",  // 비활성 정보 (연회색 하한)
+        line: "#e3e6ea", bg: "#f6f7f9",
+        warn: "#b45309", danger: "#c0392b",
       },
-      borderRadius: { card: "16px" },
-      fontFamily: { sans: ["Pretendard", "Malgun Gothic", "맑은 고딕", "-apple-system", "sans-serif"] },
-      maxWidth: { content: "1200px" },
+      borderRadius: { card: "18px" },
+      fontFamily: { sans: ["Pretendard", "SUIT", "Noto Sans KR", "-apple-system", "BlinkMacSystemFont", "Segoe UI", "sans-serif"] },
+      maxWidth: { content: "1280px" },
+      fontSize: {
+        // rem 기반 타이포 토큰 (base 16px)
+        "xs":  ["0.875rem", { lineHeight: "1.5" }],    // 14
+        "sm":  ["0.9375rem", { lineHeight: "1.55" }],  // 15
+        "base":["1rem", { lineHeight: "1.6" }],        // 16
+        "md":  ["1.0625rem", { lineHeight: "1.6" }],   // 17
+        "lg":  ["1.125rem", { lineHeight: "1.45" }],   // 18
+        "xl":  ["1.25rem", { lineHeight: "1.35" }],    // 20
+        "2xl": ["1.5rem", { lineHeight: "1.3" }],      // 24
+        "3xl": ["1.9rem", { lineHeight: "1.25" }],     // ~30
+        "4xl": ["2.25rem", { lineHeight: "1.2" }],     // 36
+      },
     } },
   };
 </script>
@@ -26,16 +43,30 @@
 <!-- ⚠️ Babel 버전 고정: 최신은 이 환경에서 빈 화면 유발 이력 있음 -->
 <script src="https://unpkg.com/@babel/standalone@7.23.5/babel.min.js"></script>
 <style>
-  :root { color-scheme: light; }
+  /* ── 전역 타이포그래피 토큰 (rem 기반, base 16px) ── */
+  :root {
+    color-scheme: light;
+    font-size: 16px;
+    --fs-xs: 0.875rem; --fs-sm: 0.9375rem; --fs-base: 1rem; --fs-md: 1.0625rem;
+    --fs-lg: 1.125rem; --fs-xl: 1.25rem; --fs-2xl: 1.5rem; --fs-3xl: 1.9rem;
+    --fw-regular: 400; --fw-medium: 500; --fw-semibold: 600; --fw-bold: 700;
+    --lh-tight: 1.3; --lh-normal: 1.55; --lh-relaxed: 1.7;
+  }
   * { -webkit-tap-highlight-color: transparent; }
-  body { font-family: "Pretendard","Malgun Gothic","맑은 고딕",-apple-system,sans-serif; background: #fafafa; color: #1b1e1c; }
+  body {
+    font-family: Pretendard, SUIT, "Noto Sans KR", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    background: #f6f7f9; color: #374151;
+    font-size: 1rem; line-height: 1.6; letter-spacing: -0.01em;
+    -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility;
+  }
+  h1, h2, h3 { color: #111827; letter-spacing: -0.02em; }
   .no-scrollbar::-webkit-scrollbar { display: none; }
   .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
   .rise { animation: rise .2s ease both; }
   @keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
-  .shimmer { background: linear-gradient(100deg, #eee 30%, #f5f5f5 50%, #eee 70%); background-size: 200% 100%; animation: sh 1.2s infinite; }
+  .shimmer { background: linear-gradient(100deg, #e9ebee 30%, #f2f3f5 50%, #e9ebee 70%); background-size: 200% 100%; animation: sh 1.2s infinite; }
   @keyframes sh { to { background-position: -200% 0; } }
-  :focus-visible { outline: 2px solid #0f9d6f; outline-offset: 2px; border-radius: 6px; }
+  :focus-visible { outline: 3px solid #0f9d6f; outline-offset: 2px; border-radius: 8px; }
   @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; } }
 </style>
 </head>
@@ -98,8 +129,33 @@ function keywordsOf(p) {
   if (p.rating != null && p.rating >= 4.5) k.push("평점 높음");
   if (p.reviews >= 1000) k.push("리뷰 " + Math.round(p.reviews / 1000) + "천+");
   else if (p.reviews >= 300 && k.length < 2) k.push("리뷰 많음");
-  if (p.parking === true && k.length < 3) k.push("주차");
   return k.slice(0, 3);
+}
+// 카페 여부 — 애견동반 표시 대상 판별
+const isCafePlace = (p) =>
+  /카페|커피|디저트|베이커리|브런치|빵집|로스터리|제과/.test(p.category || "") ||
+  (p.types || []).some((t) => /cafe|coffee|bakery|dessert/.test(t));
+// 편의정보(주차·애견동반) 목록 — 모든 음식점에 주차, 카페엔 애견동반까지. ok: true/false/null(정보없음)
+function amenitiesOf(p) {
+  const tri = (v) => (v === true ? true : v === false ? false : null);
+  const items = [{ icon: "🅿️", ok: tri(p.parking), yes: "주차 가능", no: "주차 불가", na: "주차 정보 없음" }];
+  if (isCafePlace(p)) items.push({ icon: "🐶", ok: tri(p.petOk), yes: "애견동반 가능", no: "애견동반 불가", na: "애견동반 정보 없음" });
+  return items;
+}
+function AmenityChips({ place, className }) {
+  const items = amenitiesOf(place);
+  return (
+    <div className={"flex flex-wrap gap-1.5 " + (className || "")}>
+      {items.map((it, i) => (
+        <span key={i} className={"text-xs font-medium px-2.5 h-7 rounded-full inline-flex items-center gap-1 ring-1 " +
+          (it.ok === true ? "bg-brandSoft text-brandDark ring-brand/30"
+            : it.ok === false ? "bg-bg text-muted ring-line"
+            : "bg-bg text-sub ring-line")}>
+          <span className="not-italic">{it.icon}</span>{it.ok === true ? it.yes : it.ok === false ? it.no : it.na}
+        </span>
+      ))}
+    </div>
+  );
 }
 async function getJSON(url) {
   const r = await fetch(url);
@@ -114,6 +170,7 @@ const I = {
   pin: (c) => <svg viewBox="0 0 24 24" className={c} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 21s7-6.4 7-11a7 7 0 1 0-14 0c0 4.6 7 11 7 11Z"/><circle cx="12" cy="10" r="2.5"/></svg>,
   heart: (c, fill) => <svg viewBox="0 0 24 24" className={c} fill={fill ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2" strokeLinejoin="round"><path d="M12 20s-7-4.6-7-9.5A4.5 4.5 0 0 1 12 8a4.5 4.5 0 0 1 7 2.5C19 15.4 12 20 12 20Z"/></svg>,
   star: (c) => <svg viewBox="0 0 24 24" className={c} fill="currentColor"><path d="m12 17-5.5 3 1-6.1L3 9.6l6.1-.9L12 3l2.9 5.7 6.1.9-4.5 4.3 1 6.1z"/></svg>,
+  check: (c) => <svg viewBox="0 0 24 24" className={c} fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6 9 17l-5-5"/></svg>,
   list: (c) => <svg viewBox="0 0 24 24" className={c} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>,
   map: (c) => <svg viewBox="0 0 24 24" className={c} fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round"><path d="m9 4 6 2 5-2v14l-5 2-6-2-5 2V6z"/><path d="M9 4v14M15 6v14"/></svg>,
   share: (c) => <svg viewBox="0 0 24 24" className={c} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.6 13.5 6.8 4M15.4 6.5 8.6 10.5"/></svg>,
@@ -124,24 +181,24 @@ const I = {
 /* ─────────────────────── Header ─────────────────────── */
 function Header({ locLabel, approx, onPrecise, savedCount, onOpenSaved }) {
   return (
-    <header className="sticky top-0 z-30 bg-white/90 backdrop-blur border-b border-line">
-      <div className="max-w-content mx-auto px-4 sm:px-6 lg:px-8 h-14 flex items-center gap-3">
-        <div className="flex items-center gap-1.5 font-extrabold text-lg text-ink shrink-0">
-          <span className="text-brand">{I.pin("w-5 h-5")}</span>여기어때
+    <header className="sticky top-0 z-30 bg-white/95 backdrop-blur border-b border-line">
+      <div className="max-w-content mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center gap-3">
+        <div className="flex items-center gap-2 font-extrabold text-[1.375rem] text-ink shrink-0">
+          <span className="text-brand">{I.pin("w-6 h-6")}</span>여기어때
         </div>
         <button onClick={onPrecise}
-          className="hidden sm:flex items-center gap-1 text-sm text-sub hover:text-ink px-2 py-1 rounded-lg hover:bg-bg transition min-w-0"
+          className="hidden sm:flex items-center gap-1.5 text-base text-body hover:text-ink px-2.5 h-10 rounded-lg hover:bg-bg transition min-w-0"
           title="정확한 위치로 다시 찾기">
-          <span className="text-brand">{I.pin("w-4 h-4")}</span>
-          <span className="truncate max-w-[180px]">{locLabel || "위치 확인 중"}</span>
-          {approx && <span className="text-xs text-warn ml-0.5">· 대략</span>}
+          <span className="text-brand">{I.pin("w-[18px] h-[18px]")}</span>
+          <span className="truncate max-w-[200px] font-semibold">{locLabel || "위치 확인 중"}</span>
+          {approx && <span className="text-sm text-warn ml-0.5">· 대략</span>}
         </button>
         <div className="flex-1" />
         <button onClick={onOpenSaved}
-          className="relative flex items-center gap-1.5 text-sm font-semibold text-ink px-3 py-2 rounded-xl border border-line hover:border-brand hover:text-brand transition"
+          className="relative flex items-center gap-1.5 text-base font-semibold text-ink px-4 h-11 rounded-xl border border-line hover:border-brand hover:text-brand transition"
           aria-label={`저장한 장소 ${savedCount}곳`}>
-          {I.heart("w-4 h-4", false)}<span className="hidden sm:inline">저장</span>
-          {savedCount > 0 && <span className="min-w-[18px] h-[18px] px-1 rounded-full bg-brand text-white text-[11px] font-bold flex items-center justify-center">{savedCount}</span>}
+          {I.heart("w-[18px] h-[18px]", false)}<span className="hidden sm:inline">저장</span>
+          {savedCount > 0 && <span className="min-w-[20px] h-5 px-1 rounded-full bg-brand text-white text-xs font-bold flex items-center justify-center">{savedCount}</span>}
         </button>
       </div>
     </header>
@@ -154,20 +211,20 @@ function SearchBar({ value, onChange, onSubmit, onUseLocation, locStatus }) {
     <div>
       <form onSubmit={(e) => { e.preventDefault(); onSubmit(); }} className="flex gap-2">
         <div className="relative flex-1">
-          <span className="absolute left-4 top-1/2 -translate-y-1/2 text-sub">{I.search("w-5 h-5")}</span>
+          <span className="absolute left-4 top-1/2 -translate-y-1/2 text-sub">{I.search("w-[22px] h-[22px]")}</span>
           <input
             value={value} onChange={(e) => onChange(e.target.value)}
             placeholder="지역, 지하철역, 음식점을 검색해보세요"
             aria-label="장소 검색"
-            className="w-full h-[52px] pl-11 pr-4 rounded-xl border border-line bg-white text-[15px] placeholder:text-sub/80 focus:border-brand outline-none transition" />
+            className="w-full h-14 pl-12 pr-4 rounded-xl border border-line bg-white text-md text-ink placeholder:text-muted focus:border-brand focus:ring-2 focus:ring-brand/20 outline-none transition" />
         </div>
         <button type="submit"
-          className="h-[52px] px-5 rounded-xl bg-ink text-white font-semibold hover:bg-black transition shrink-0">검색</button>
+          className="h-14 px-6 rounded-xl bg-ink text-white text-md font-semibold hover:bg-black transition shrink-0">검색</button>
       </form>
-      <div className="mt-2 flex items-center gap-3">
+      <div className="mt-3 flex items-center gap-3">
         <button onClick={onUseLocation} disabled={locStatus === "locating"}
-          className="inline-flex items-center gap-1.5 text-sm font-semibold text-brand hover:text-brandDark disabled:opacity-60 transition">
-          {I.pin("w-4 h-4")}
+          className="inline-flex items-center gap-1.5 text-base font-semibold text-brand hover:text-brandDark disabled:opacity-60 transition h-11 px-1">
+          {I.pin("w-[18px] h-[18px]")}
           {locStatus === "locating" ? "현재 위치 확인 중…" : "현재 위치로 찾기"}
         </button>
       </div>
@@ -179,11 +236,11 @@ function SearchBar({ value, onChange, onSubmit, onUseLocation, locStatus }) {
 function Chip({ active, onClick, children }) {
   return (
     <button onClick={onClick} aria-pressed={active}
-      className={"shrink-0 px-3.5 h-9 rounded-full text-sm font-medium border transition inline-flex items-center gap-1 " +
+      className={"shrink-0 px-4 h-11 rounded-full text-base transition inline-flex items-center gap-1.5 border-[1.5px] " +
         (active
-          ? "bg-brand text-white border-brand"
-          : "bg-white text-ink/80 border-line hover:border-brand/60 hover:text-ink")}>
-      {active && <span className="text-white">{I.star("w-3 h-3")}</span>}
+          ? "bg-brand text-white border-brand font-semibold shadow-sm"
+          : "bg-white text-body font-medium border-line hover:border-brand hover:text-ink")}>
+      {active && <span className="text-white">{I.check("w-[17px] h-[17px]")}</span>}
       {children}
     </button>
   );
@@ -194,22 +251,22 @@ function Filters({ situation, setSituation, category, setCategory }) {
   const [openAll, setOpenAll] = useState(false);
   const sit = openAll ? SITUATIONS : SITUATIONS.slice(0, 6);
   return (
-    <div className="space-y-3">
+    <div className="space-y-6">
       <div>
-        <div className="text-xs font-semibold text-sub mb-2">상황·목적</div>
-        <div className="flex flex-wrap gap-2">
+        <div className="text-base font-semibold text-ink mb-3">상황·목적</div>
+        <div className="flex flex-wrap gap-2.5">
           {sit.map((s) => (
             <Chip key={s.key} active={situation === s.key} onClick={() => setSituation(situation === s.key ? null : s.key)}>{s.label}</Chip>
           ))}
           <button onClick={() => setOpenAll((v) => !v)}
-            className="shrink-0 px-3 h-9 rounded-full text-sm font-medium text-sub hover:text-ink border border-dashed border-line">
+            className="shrink-0 px-4 h-11 rounded-full text-base font-medium text-sub hover:text-ink underline underline-offset-4 decoration-line hover:decoration-brand transition">
             {openAll ? "접기" : "전체보기"}
           </button>
         </div>
       </div>
       <div>
-        <div className="text-xs font-semibold text-sub mb-2">음식 종류</div>
-        <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1 sm:flex-wrap">
+        <div className="text-base font-semibold text-ink mb-3">음식 종류</div>
+        <div className="flex gap-2.5 overflow-x-auto no-scrollbar pb-1 sm:flex-wrap">
           {CATEGORIES.map((c) => (
             <Chip key={c.key} active={category === c.key} onClick={() => setCategory(category === c.key ? null : c.key)}>{c.label}</Chip>
           ))}
@@ -239,43 +296,49 @@ function PlaceCard({ place, saved, onToggleSave, onOpen }) {
           </div>
         )}
         {place.openNow != null && (
-          <span className={"absolute left-2.5 bottom-2.5 text-[11px] font-bold px-2 py-0.5 rounded-full " +
-            (place.openNow ? "bg-brand text-white" : "bg-black/60 text-white")}>
+          <span className={"absolute left-3 bottom-3 text-xs font-semibold px-2.5 h-7 inline-flex items-center rounded-full " +
+            (place.openNow ? "bg-brand text-white" : "bg-black/70 text-white")}>
             {place.openNow ? "영업 중" : "영업 종료"}
           </span>
         )}
         <button onClick={(e) => { e.stopPropagation(); onToggleSave(place); }}
           aria-label={saved ? "저장 취소" : "저장하기"} aria-pressed={saved}
-          className={"absolute right-2 top-2 w-9 h-9 rounded-full flex items-center justify-center backdrop-blur transition " +
-            (saved ? "bg-white text-brand" : "bg-black/35 text-white hover:bg-black/55")}>
-          {I.heart("w-[18px] h-[18px]", saved)}
+          className={"absolute right-2.5 top-2.5 w-11 h-11 rounded-full flex items-center justify-center backdrop-blur transition " +
+            (saved ? "bg-white text-brand shadow" : "bg-black/40 text-white hover:bg-black/60")}>
+          {I.heart("w-[21px] h-[21px]", saved)}
         </button>
       </div>
-      <div className="p-3.5">
-        <div className="flex items-baseline gap-1.5">
-          <h3 className="font-bold text-[15px] text-ink truncate">{place.name}</h3>
-        </div>
-        <div className="mt-0.5 text-[13px] text-sub flex items-center gap-1.5 flex-wrap">
-          <span>{place.category || "음식점"}</span>
-          {priceStr(place) && <><span className="text-line">·</span><span>{priceStr(place)}</span></>}
-        </div>
-        <div className="mt-2 flex items-center gap-2 text-[13px]">
+      <div className="p-[18px]">
+        {/* 1단계: 음식점 이름 */}
+        <h3 className="font-bold text-xl text-ink leading-snug line-clamp-2">{place.name}</h3>
+        {/* 2단계: 업종 */}
+        <p className="mt-2 text-base text-sub">
+          {place.category || "음식점"}{priceStr(place) && <span className="text-muted"> · {priceStr(place)}</span>}
+        </p>
+        {/* 3단계: 평점·리뷰 / 거리·이동시간 (읽기 쉽게 두 줄로 분리) */}
+        <div className="mt-3 flex items-center gap-2 text-base">
           {place.rating != null ? (
-            <span className="inline-flex items-center gap-0.5 font-semibold text-ink">
-              <span className="text-amber-400">{I.star("w-3.5 h-3.5")}</span>{place.rating}
-              <span className="text-sub font-normal">({place.reviews.toLocaleString()})</span>
+            <span className="inline-flex items-center gap-1 font-bold text-ink">
+              <span className="text-amber-500">{I.star("w-[18px] h-[18px]")}</span>{place.rating}
             </span>
-          ) : <span className="text-sub">평점 정보 없음</span>}
-          {distStr(place) && <><span className="text-line">·</span><span className="text-brand font-semibold">{distStr(place)}</span></>}
-          {timeStr(place) && <span className="text-sub">· {timeStr(place)}</span>}
+          ) : <span className="text-sub font-medium">평점 정보 없음</span>}
+          {place.rating != null && place.reviews > 0 && <span className="text-sub">· 리뷰 {place.reviews.toLocaleString()}</span>}
         </div>
+        {(distStr(place) || timeStr(place)) && (
+          <div className="mt-1.5 flex items-center gap-2 text-base">
+            {distStr(place) && <span className="font-semibold text-body">{distStr(place)}</span>}
+            {timeStr(place) && <span className="text-sub">{distStr(place) ? "· " : ""}{timeStr(place)}</span>}
+          </div>
+        )}
+        {/* 4단계: 출처·편의정보 */}
         {kws.length > 0 && (
-          <div className="mt-2.5 flex flex-wrap gap-1.5">
+          <div className="mt-3.5 flex flex-wrap gap-1.5">
             {kws.map((k, i) => (
-              <span key={i} className={"text-[11px] px-2 py-0.5 rounded-full " + (SRC_BADGE[k] || "bg-bg text-sub ring-1 ring-line")}>{k}</span>
+              <span key={i} className={"text-xs font-medium px-2.5 h-7 inline-flex items-center rounded-full " + (SRC_BADGE[k] || "bg-bg text-sub ring-1 ring-line")}>{k}</span>
             ))}
           </div>
         )}
+        <AmenityChips place={place} className="mt-2.5" />
       </div>
     </div>
   );
@@ -285,10 +348,10 @@ function SkeletonCard() {
   return (
     <div className="bg-white rounded-card border border-line overflow-hidden">
       <div className="aspect-[16/10] shimmer" />
-      <div className="p-3.5 space-y-2">
-        <div className="h-4 w-2/3 shimmer rounded" />
-        <div className="h-3 w-1/3 shimmer rounded" />
-        <div className="h-3 w-1/2 shimmer rounded" />
+      <div className="p-[18px] space-y-3">
+        <div className="h-6 w-2/3 shimmer rounded" />
+        <div className="h-4 w-1/3 shimmer rounded" />
+        <div className="h-4 w-1/2 shimmer rounded" />
       </div>
     </div>
   );
@@ -298,17 +361,17 @@ function SkeletonCard() {
 function Section({ title, subtitle, items, ...rest }) {
   if (!items || items.length === 0) return null;
   return (
-    <section className="mt-7">
-      <div className="flex items-baseline justify-between mb-3">
+    <section className="mt-10">
+      <div className="flex items-baseline justify-between mb-4">
         <div>
-          <h2 className="text-lg font-bold text-ink">{title}</h2>
-          {subtitle && <p className="text-[13px] text-sub mt-0.5">{subtitle}</p>}
+          <h2 className="text-xl font-bold text-ink">{title}</h2>
+          {subtitle && <p className="text-sm text-sub mt-1">{subtitle}</p>}
         </div>
       </div>
-      <div className="flex gap-3 overflow-x-auto no-scrollbar pb-1 -mx-1 px-1
-                      sm:grid sm:grid-cols-2 lg:grid-cols-4 sm:overflow-visible">
+      <div className="flex gap-5 overflow-x-auto no-scrollbar pb-1 -mx-1 px-1
+                      sm:grid sm:grid-cols-2 lg:grid-cols-3 sm:overflow-visible">
         {items.map((p) => (
-          <div key={pid(p)} className="w-[260px] shrink-0 sm:w-auto">
+          <div key={pid(p)} className="w-[300px] shrink-0 sm:w-auto">
             <PlaceCard place={p} {...rest} />
           </div>
         ))}
@@ -334,20 +397,20 @@ function MapPanel({ items, selected, onSelect }) {
             className="w-full h-56 lg:h-full object-cover rounded-card border border-line" />
         ) : (
           <div className="w-full h-56 lg:h-full rounded-card border border-line bg-white flex flex-col items-center justify-center text-center px-6">
-            <span className="text-brand mb-2">{I.map("w-8 h-8")}</span>
-            <p className="text-sm text-sub">지도 미리보기를 불러오지 못했어요.<br />각 장소 카드의 <b className="text-ink">지도 보기</b>로 위치를 확인해 주세요.</p>
+            <span className="text-brand mb-2">{I.map("w-9 h-9")}</span>
+            <p className="text-base text-body">지도 미리보기를 불러오지 못했어요.<br />각 장소 카드의 <b className="text-ink">지도 보기</b>로 위치를 확인해 주세요.</p>
           </div>
         )}
       </div>
-      <div className="space-y-2">
+      <div className="space-y-2.5">
         {pts.map((p, i) => (
           <button key={pid(p)} onClick={() => onSelect(i)}
-            className={"w-full text-left flex gap-3 p-2.5 rounded-xl border transition " +
+            className={"w-full text-left flex gap-3 p-3.5 rounded-xl border transition " +
               (selected === i ? "border-brand bg-brandSoft" : "border-line bg-white hover:border-brand/40")}>
-            <span className={"w-6 h-6 rounded-full text-white text-xs font-bold flex items-center justify-center shrink-0 " + (selected === i ? "bg-brandDark" : "bg-brand")}>{i + 1}</span>
+            <span className={"w-7 h-7 rounded-full text-white text-sm font-bold flex items-center justify-center shrink-0 " + (selected === i ? "bg-brandDark" : "bg-brand")}>{i + 1}</span>
             <span className="min-w-0">
-              <span className="block font-semibold text-sm text-ink truncate">{p.name}</span>
-              <span className="block text-xs text-sub truncate">{p.category} · {distStr(p) || p.address}</span>
+              <span className="block font-bold text-base text-ink truncate">{p.name}</span>
+              <span className="block text-sm text-sub truncate mt-0.5">{p.category} · {distStr(p) || p.address}</span>
             </span>
           </button>
         ))}
@@ -360,12 +423,12 @@ function MapPanel({ items, selected, onSelect }) {
 function EmptyState({ onReset, onWiden }) {
   return (
     <div className="text-center py-16 px-6 rise">
-      <div className="text-sub mb-3 flex justify-center">{I.search("w-9 h-9")}</div>
-      <p className="font-semibold text-ink">이 조건에 맞는 곳을 못 찾았어요</p>
-      <p className="text-sm text-sub mt-1">필터를 줄이거나 검색 범위를 넓혀볼까요?</p>
-      <div className="mt-4 flex gap-2 justify-center flex-wrap">
-        <button onClick={onReset} className="px-4 h-10 rounded-xl border border-line font-semibold text-sm hover:border-brand hover:text-brand transition">필터 초기화</button>
-        <button onClick={onWiden} className="px-4 h-10 rounded-xl bg-ink text-white font-semibold text-sm hover:bg-black transition">전체 맛집 보기</button>
+      <div className="text-sub mb-3 flex justify-center">{I.search("w-10 h-10")}</div>
+      <p className="text-lg font-bold text-ink">이 조건에 맞는 곳을 못 찾았어요</p>
+      <p className="text-base text-body mt-1.5">필터를 줄이거나 검색 범위를 넓혀볼까요?</p>
+      <div className="mt-5 flex gap-2.5 justify-center flex-wrap">
+        <button onClick={onReset} className="px-5 h-12 rounded-xl border border-line font-semibold text-base hover:border-brand hover:text-brand transition">필터 초기화</button>
+        <button onClick={onWiden} className="px-5 h-12 rounded-xl bg-ink text-white font-semibold text-base hover:bg-black transition">전체 맛집 보기</button>
       </div>
     </div>
   );
@@ -373,9 +436,9 @@ function EmptyState({ onReset, onWiden }) {
 function ErrorState({ msg, onRetry }) {
   return (
     <div className="text-center py-16 px-6 rise">
-      <p className="font-semibold text-ink">잠시 문제가 생겼어요</p>
-      <p className="text-sm text-sub mt-1">{msg || "네트워크 상태를 확인한 뒤 다시 시도해 주세요."}</p>
-      <button onClick={onRetry} className="mt-4 px-4 h-10 rounded-xl bg-ink text-white font-semibold text-sm hover:bg-black transition">다시 시도</button>
+      <p className="text-lg font-bold text-ink">잠시 문제가 생겼어요</p>
+      <p className="text-base text-body mt-1.5">{msg || "네트워크 상태를 확인한 뒤 다시 시도해 주세요."}</p>
+      <button onClick={onRetry} className="mt-5 px-5 h-12 rounded-xl bg-ink text-white font-semibold text-base hover:bg-black transition">다시 시도</button>
     </div>
   );
 }
@@ -401,43 +464,44 @@ function DetailSheet({ place, saved, onToggleSave, onClose, onToast }) {
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center" role="dialog" aria-modal="true" aria-label={place.name}>
       <div className="absolute inset-0 bg-black/40" onClick={onClose} />
-      <div className="relative bg-white w-full sm:max-w-md sm:rounded-card rounded-t-2xl max-h-[90vh] overflow-y-auto rise">
+      <div className="relative bg-white w-full sm:max-w-lg sm:rounded-card rounded-t-2xl max-h-[92vh] overflow-y-auto rise">
         <div className="relative aspect-[16/10] bg-line">
           {url ? <img src={url} alt={`${place.name} 사진`} className="w-full h-full object-cover" />
-               : <div className="w-full h-full flex items-center justify-center text-2xl font-bold text-sub/50">{place.name.slice(0, 2)}</div>}
-          <button onClick={onClose} aria-label="닫기" className="absolute right-3 top-3 w-9 h-9 rounded-full bg-black/45 text-white flex items-center justify-center hover:bg-black/65">{I.close("w-5 h-5")}</button>
+               : <div className="w-full h-full flex items-center justify-center text-3xl font-bold text-muted">{place.name.slice(0, 2)}</div>}
+          <button onClick={onClose} aria-label="닫기" className="absolute right-3 top-3 w-11 h-11 rounded-full bg-black/50 text-white flex items-center justify-center hover:bg-black/70">{I.close("w-6 h-6")}</button>
           {place.openNow != null && (
-            <span className={"absolute left-3 bottom-3 text-xs font-bold px-2.5 py-1 rounded-full " + (place.openNow ? "bg-brand text-white" : "bg-black/60 text-white")}>{place.openNow ? "영업 중" : "영업 종료"}</span>
+            <span className={"absolute left-3 bottom-3 text-sm font-semibold px-3 h-8 inline-flex items-center rounded-full " + (place.openNow ? "bg-brand text-white" : "bg-black/70 text-white")}>{place.openNow ? "영업 중" : "영업 종료"}</span>
           )}
         </div>
-        <div className="p-5">
-          <h2 className="text-xl font-extrabold text-ink">{place.name}</h2>
-          <div className="mt-1 text-sm text-sub flex items-center gap-2 flex-wrap">
-            <span>{place.category || "음식점"}</span>
-            {priceStr(place) && <><span className="text-line">·</span>{priceStr(place)}</>}
-            {place.rating != null && <><span className="text-line">·</span><span className="inline-flex items-center gap-0.5 text-ink font-semibold"><span className="text-amber-400">{I.star("w-3.5 h-3.5")}</span>{place.rating} <span className="font-normal text-sub">({place.reviews.toLocaleString()})</span></span></>}
+        <div className="p-6">
+          <h2 className="text-2xl font-extrabold text-ink leading-snug">{place.name}</h2>
+          <div className="mt-2.5 flex items-center gap-2.5 flex-wrap text-base">
+            <span className="text-sub">{place.category || "음식점"}</span>
+            {priceStr(place) && <span className="text-muted">· {priceStr(place)}</span>}
+            {place.rating != null && <span className="inline-flex items-center gap-1 text-ink font-bold"><span className="text-amber-500">{I.star("w-[18px] h-[18px]")}</span>{place.rating} <span className="font-medium text-sub">· 리뷰 {place.reviews.toLocaleString()}</span></span>}
           </div>
           {(distStr(place) || timeStr(place)) && (
-            <div className="mt-1 text-sm"><span className="text-brand font-semibold">{distStr(place)}</span>{timeStr(place) && <span className="text-sub"> · {timeStr(place)}</span>}</div>
+            <div className="mt-1.5 text-base"><span className="text-body font-semibold">{distStr(place)}</span>{timeStr(place) && <span className="text-sub"> · {timeStr(place)}</span>}</div>
           )}
-          <div className="mt-2 text-sm text-sub">{place.address}</div>
+          <div className="mt-2.5 text-base text-sub">{place.address}</div>
+          <AmenityChips place={place} className="mt-3.5" />
           {place.reason && (
-            <div className={"mt-3 text-sm leading-relaxed rounded-xl p-3 " + (SRC_BADGE[place.source] || "bg-bg ring-1 ring-line")}>
+            <div className={"mt-4 text-base leading-relaxed rounded-xl p-4 " + (SRC_BADGE[place.source] || "bg-bg ring-1 ring-line")}>
               {place.episode && <b className="mr-1">[{place.episode}]</b>}{place.reason}
             </div>
           )}
-          <div className="mt-4 grid grid-cols-4 gap-2">
+          <div className="mt-5 grid grid-cols-4 gap-2.5">
             <button onClick={() => onToggleSave(place)}
-              className={"col-span-1 h-11 rounded-xl font-semibold text-sm flex items-center justify-center gap-1 border transition " +
+              className={"col-span-1 h-12 rounded-xl font-semibold text-base flex items-center justify-center gap-1 border transition " +
                 (saved ? "bg-brandSoft text-brandDark border-brand" : "border-line text-ink hover:border-brand")}>
-              {I.heart("w-4 h-4", saved)}
+              {I.heart("w-5 h-5", saved)}
             </button>
             <a href={place.mapUri || naver} target="_blank" rel="noreferrer"
-              className="col-span-1 h-11 rounded-xl border border-line text-ink font-semibold text-sm flex items-center justify-center hover:border-brand transition">구글</a>
+              className="col-span-1 h-12 rounded-xl border border-line text-ink font-semibold text-base flex items-center justify-center hover:border-brand transition">구글</a>
             <a href={naver} target="_blank" rel="noreferrer"
-              className="col-span-1 h-11 rounded-xl border border-line text-ink font-semibold text-sm flex items-center justify-center hover:border-brand transition">네이버</a>
+              className="col-span-1 h-12 rounded-xl border border-line text-ink font-semibold text-base flex items-center justify-center hover:border-brand transition">네이버</a>
             <button onClick={share} aria-label="공유"
-              className="col-span-1 h-11 rounded-xl border border-line text-ink flex items-center justify-center hover:border-brand transition">{I.share("w-4 h-4")}</button>
+              className="col-span-1 h-12 rounded-xl border border-line text-ink flex items-center justify-center hover:border-brand transition">{I.share("w-5 h-5")}</button>
           </div>
         </div>
       </div>
@@ -456,28 +520,28 @@ function SavedPanel({ open, saved, onClose, onOpenPlace, onToggleSave }) {
   return (
     <div className="fixed inset-0 z-50" role="dialog" aria-modal="true" aria-label="저장한 장소">
       <div className="absolute inset-0 bg-black/40" onClick={onClose} />
-      <div className="absolute right-0 top-0 h-full w-full sm:w-[400px] bg-white shadow-xl overflow-y-auto rise">
-        <div className="sticky top-0 bg-white border-b border-line px-4 h-14 flex items-center justify-between">
-          <b className="text-ink">저장한 장소 {saved.length > 0 && <span className="text-brand">{saved.length}</span>}</b>
-          <button onClick={onClose} aria-label="닫기" className="w-9 h-9 flex items-center justify-center rounded-lg hover:bg-bg">{I.close("w-5 h-5")}</button>
+      <div className="absolute right-0 top-0 h-full w-full sm:w-[420px] bg-white shadow-xl overflow-y-auto rise">
+        <div className="sticky top-0 bg-white border-b border-line px-5 h-16 flex items-center justify-between">
+          <b className="text-lg text-ink">저장한 장소 {saved.length > 0 && <span className="text-brand">{saved.length}</span>}</b>
+          <button onClick={onClose} aria-label="닫기" className="w-11 h-11 flex items-center justify-center rounded-lg hover:bg-bg">{I.close("w-6 h-6")}</button>
         </div>
         {saved.length === 0 ? (
-          <div className="text-center text-sub py-20 px-6">
-            <div className="flex justify-center mb-2">{I.heart("w-8 h-8", false)}</div>
+          <div className="text-center text-base text-body py-20 px-6">
+            <div className="flex justify-center mb-3 text-sub">{I.heart("w-9 h-9", false)}</div>
             아직 저장한 곳이 없어요.<br />마음에 드는 곳의 <b className="text-ink">하트</b>를 눌러 담아보세요.
           </div>
         ) : (
-          <div className="p-3 space-y-2">
+          <div className="p-4 space-y-3">
             {saved.map((p) => (
-              <div key={pid(p)} className="flex gap-3 p-2 rounded-xl border border-line bg-white">
+              <div key={pid(p)} className="flex gap-3 p-2.5 rounded-xl border border-line bg-white">
                 <button onClick={() => onOpenPlace(p)} className="flex gap-3 min-w-0 flex-1 text-left">
-                  <div className="w-16 h-16 rounded-lg bg-line overflow-hidden shrink-0">
-                    {photoUrl(p, 200) ? <img src={photoUrl(p, 200)} alt="" className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-sub/50 font-bold">{p.name.slice(0, 2)}</div>}
+                  <div className="w-[72px] h-[72px] rounded-lg bg-line overflow-hidden shrink-0">
+                    {photoUrl(p, 200) ? <img src={photoUrl(p, 200)} alt="" className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-muted font-bold">{p.name.slice(0, 2)}</div>}
                   </div>
                   <div className="min-w-0">
-                    <div className="font-semibold text-sm text-ink truncate">{p.name}</div>
-                    <div className="text-xs text-sub truncate">{p.category} · {p.address || p.region}</div>
-                    {p.rating != null && <div className="text-xs text-ink mt-0.5">★ {p.rating}</div>}
+                    <div className="font-bold text-base text-ink truncate">{p.name}</div>
+                    <div className="text-sm text-sub truncate mt-0.5">{p.category} · {p.address || p.region}</div>
+                    {p.rating != null && <div className="text-sm font-semibold text-ink mt-1">★ {p.rating}</div>}
                   </div>
                 </button>
                 <button onClick={() => onToggleSave(p)} aria-label="저장 취소" className="text-brand shrink-0 self-start p-1">{I.heart("w-5 h-5", true)}</button>
@@ -578,8 +642,12 @@ function App() {
     };
   }, [situation, category]);
 
+  // 마지막 검색 맥락(지역 검색 vs 현위치)을 기억 — 필터 변경 시 같은 맥락으로 재검색
+  const lastWhereRef = useRef(null);
+
   // 검색 실행
   const discover = useCallback(async (where) => {
+    lastWhereRef.current = where;
     setView("results"); setLoading(true); setError(""); setResults(null); setMapSel(0); setResultTab("all");
     setLastCond({ situation, category });
     const { q, cat, open, parking } = buildParams();
@@ -611,9 +679,26 @@ function App() {
     else discoverHere();
   }, [query, discover, discoverHere]);
 
-  // 필터 칩 변경 시, 이미 결과 화면이면 자동 재검색
   const onSituation = (v) => { setSituation(v); };
   const onCategory = (v) => { setCategory(v); };
+
+  // 마지막 검색 맥락 그대로 재검색 (지역 검색 중이면 그 지역으로, 아니면 현위치)
+  const rerunSearch = useCallback(() => {
+    const w = lastWhereRef.current;
+    if (w && w.type === "region") discover({ type: "region", region: w.region });
+    else discoverHere();
+  }, [discover, discoverHere]);
+
+  // 필터(상황·업종) 변경 시 자동으로 같은 맥락에서 재검색 — 별도 버튼 불필요
+  const autoReady = useRef(false);
+  useEffect(() => {
+    if (!geo) return;                 // 위치 준비 전엔 대기
+    if (!autoReady.current) {          // 최초 위치 확보 시점: 자동검색 무장만
+      autoReady.current = true;
+      return;
+    }
+    rerunSearch();
+  }, [geo, situation, category]);
 
   const openDetail = (p) => setDetail(p);
 
@@ -644,24 +729,24 @@ function App() {
 
       <main className="max-w-content mx-auto px-4 sm:px-6 lg:px-8 pb-16">
         {/* ── 핵심 탐색 영역 ── */}
-        <section className="pt-6 sm:pt-8">
-          <h1 className="text-[28px] sm:text-[34px] font-extrabold text-ink tracking-tight">오늘 어디 갈까요?</h1>
-          <p className="text-sub mt-1 text-[15px]">내 주변 카페와 맛집을 상황과 취향에 맞게 찾아드려요.</p>
-          <div className="mt-4 max-w-2xl">
+        <section className="pt-8 sm:pt-10">
+          <h1 className="text-3xl sm:text-4xl font-extrabold text-ink">오늘 어디 갈까요?</h1>
+          <p className="text-body mt-3 text-md leading-relaxed">내 주변 카페와 맛집을 상황과 취향에 맞게 찾아드려요.</p>
+          <div className="mt-5 max-w-2xl">
             <SearchBar value={query} onChange={setQuery} onSubmit={submitSearch} onUseLocation={discoverHere} locStatus={locStatus} />
             {locStatus === "failed" && (
-              <p className="mt-2 text-[13px] text-warn">현재 위치를 확인하지 못했어요. 위 검색창에 <b>지역명</b>을 입력하면 바로 찾아볼 수 있어요.</p>
+              <p className="mt-3 text-base text-warn">현재 위치를 확인하지 못했어요. 위 검색창에 <b>지역명</b>을 입력하면 바로 찾아볼 수 있어요.</p>
             )}
             {geo?.approx && locStatus !== "failed" && (
-              <p className="mt-2 text-[13px] text-sub"><b className="text-ink">{geo.label}</b> 근처 기준이에요. <button onClick={() => usePrecise()} className="text-brand font-semibold underline underline-offset-2">정확한 위치로</button></p>
+              <p className="mt-3 text-base text-body"><b className="text-ink">{geo.label}</b> 근처 기준이에요. <button onClick={() => usePrecise()} className="text-brand font-semibold underline underline-offset-2">정확한 위치로</button></p>
             )}
             {recent.length > 0 && (
-              <div className="mt-3 flex items-center gap-2 flex-wrap">
-                <span className="text-xs text-sub">최근 검색</span>
+              <div className="mt-4 flex items-center gap-2 flex-wrap">
+                <span className="text-sm text-sub">최근 검색</span>
                 {recent.slice(0, 6).map((r) => (
                   <button key={r} onClick={() => { setQuery(r); discover({ type: "region", region: r }); }}
-                    className="text-xs px-2.5 h-7 rounded-full bg-white border border-line text-ink/80 hover:border-brand/50 inline-flex items-center gap-1">
-                    {r}<span onClick={(e) => { e.stopPropagation(); setRecent((x) => x.filter((v) => v !== r)); }} className="text-sub hover:text-ink">{I.x2("w-3 h-3")}</span>
+                    className="text-sm px-3.5 h-10 rounded-full bg-white border border-line text-body font-medium hover:border-brand hover:text-ink inline-flex items-center gap-1.5 transition">
+                    {r}<span onClick={(e) => { e.stopPropagation(); setRecent((x) => x.filter((v) => v !== r)); }} className="text-sub hover:text-ink">{I.x2("w-4 h-4")}</span>
                   </button>
                 ))}
               </div>
@@ -669,26 +754,18 @@ function App() {
           </div>
         </section>
 
-        {/* ── 필터 ── */}
-        <div className="mt-6">
+        {/* ── 필터 (선택 즉시 자동 검색) ── */}
+        <div className="mt-8">
           <Filters situation={situation} setSituation={onSituation} category={category} setCategory={onCategory} />
-          {(situation || category) && (
-            <div className="mt-3">
-              <button onClick={discoverHere}
-                className="h-11 px-5 rounded-xl bg-brand text-white font-bold text-sm hover:bg-brandDark transition inline-flex items-center gap-1.5">
-                {I.search("w-4 h-4")} 이 조건으로 내 주변 찾기
-              </button>
-            </div>
-          )}
         </div>
 
         {/* ── 인기 지역 바로가기 ── */}
         {view === "home" && (
-          <div className="mt-5 flex items-center gap-2 flex-wrap">
-            <span className="text-xs text-sub">인기 지역</span>
+          <div className="mt-6 flex items-center gap-2.5 flex-wrap">
+            <span className="text-base font-semibold text-ink mr-1">인기 지역</span>
             {HOT_REGIONS.map((r) => (
               <button key={r} onClick={() => { setQuery(r); discover({ type: "region", region: r }); }}
-                className="text-sm px-3 h-8 rounded-full bg-white border border-line text-ink/80 hover:border-brand/50 transition">{r}</button>
+                className="text-base px-4 h-11 rounded-full bg-white border border-line text-body font-medium hover:border-brand hover:text-ink transition">{r}</button>
             ))}
           </div>
         )}
@@ -697,9 +774,9 @@ function App() {
         {view === "home" && (
           <div>
             {!home ? (
-              <div className="mt-7">
-                <div className="h-6 w-40 shimmer rounded mb-3" />
-                <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">{[0, 1, 2, 3].map((i) => <SkeletonCard key={i} />)}</div>
+              <div className="mt-10">
+                <div className="h-7 w-44 shimmer rounded mb-4" />
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">{[0, 1, 2].map((i) => <SkeletonCard key={i} />)}</div>
               </div>
             ) : (
               <>
@@ -709,7 +786,7 @@ function App() {
                 <Section title="주변 방송 맛집 · 식객" items={home.sikgaek} onToggleSave={toggleSave} onOpen={openDetail} />
                 {saved.length > 0 && <Section title="내가 저장한 장소" items={saved.slice(0, 8)} onToggleSave={toggleSave} onOpen={openDetail} />}
                 {home.popular?.length === 0 && home.cafes?.length === 0 && (
-                  <p className="mt-8 text-center text-sub text-sm">이 근처 추천을 불러오지 못했어요. 위에서 지역을 검색해 보세요.</p>
+                  <p className="mt-8 text-center text-base text-body">이 근처 추천을 불러오지 못했어요. 위에서 지역을 검색해 보세요.</p>
                 )}
               </>
             )}
@@ -718,32 +795,32 @@ function App() {
 
         {/* ── 결과 화면 ── */}
         {view === "results" && (
-          <div className="mt-6">
-            <div className="flex items-center justify-between gap-2 mb-4 flex-wrap">
-              <button onClick={() => setView("home")} className="text-sm text-sub hover:text-ink font-medium">← 홈으로</button>
+          <div className="mt-9">
+            <div className="flex items-center justify-between gap-2 mb-5 flex-wrap">
+              <button onClick={() => setView("home")} className="text-base text-body hover:text-ink font-semibold h-11 inline-flex items-center">← 홈으로</button>
               <div className="inline-flex rounded-xl border border-line overflow-hidden">
                 <button onClick={() => setResultMode("list")} aria-pressed={resultMode === "list"}
-                  className={"px-3 h-9 text-sm font-semibold inline-flex items-center gap-1 " + (resultMode === "list" ? "bg-ink text-white" : "bg-white text-sub")}>{I.list("w-4 h-4")}목록</button>
+                  className={"px-4 h-11 text-base font-semibold inline-flex items-center gap-1.5 " + (resultMode === "list" ? "bg-ink text-white" : "bg-white text-body")}>{I.list("w-[18px] h-[18px]")}목록</button>
                 <button onClick={() => setResultMode("map")} aria-pressed={resultMode === "map"}
-                  className={"px-3 h-9 text-sm font-semibold inline-flex items-center gap-1 " + (resultMode === "map" ? "bg-ink text-white" : "bg-white text-sub")}>{I.map("w-4 h-4")}지도</button>
+                  className={"px-4 h-11 text-base font-semibold inline-flex items-center gap-1.5 " + (resultMode === "map" ? "bg-ink text-white" : "bg-white text-body")}>{I.map("w-[18px] h-[18px]")}지도</button>
               </div>
             </div>
 
             {/* 탭 */}
             {results && (
-              <div className="flex gap-2 overflow-x-auto no-scrollbar mb-4">
+              <div className="flex gap-2 overflow-x-auto no-scrollbar mb-5" role="tablist">
                 {TABS.map((t) => (
-                  <button key={t.key} onClick={() => { setResultTab(t.key); setMapSel(0); }} aria-pressed={resultTab === t.key}
-                    className={"shrink-0 px-3.5 h-9 rounded-full text-sm font-semibold border transition " +
-                      (resultTab === t.key ? "bg-brand text-white border-brand" : "bg-white text-ink/70 border-line hover:border-brand/50")}>
-                    {t.label} <span className={resultTab === t.key ? "opacity-90" : "text-sub"}>{t.n}</span>
+                  <button key={t.key} onClick={() => { setResultTab(t.key); setMapSel(0); }} role="tab" aria-selected={resultTab === t.key}
+                    className={"shrink-0 px-4 h-11 rounded-full text-base border-[1.5px] transition inline-flex items-center gap-1.5 " +
+                      (resultTab === t.key ? "bg-brand text-white border-brand font-semibold" : "bg-white text-body font-medium border-line hover:border-brand")}>
+                    {t.label} <span className={resultTab === t.key ? "text-white/90" : "text-sub"}>{t.n}</span>
                   </button>
                 ))}
               </div>
             )}
 
             {loading && (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">{[0, 1, 2, 3, 4, 5].map((i) => <SkeletonCard key={i} />)}</div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 gap-6">{[0, 1, 2, 3, 4, 5].map((i) => <SkeletonCard key={i} />)}</div>
             )}
             {!loading && error && <ErrorState msg={error} onRetry={discoverHere} />}
             {!loading && !error && results && (
@@ -754,7 +831,7 @@ function App() {
               ) : resultMode === "map" ? (
                 <MapPanel items={tabList} selected={mapSel} onSelect={setMapSel} />
               ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 gap-6">
                   {tabList.map(renderCard)}
                 </div>
               )
@@ -767,10 +844,10 @@ function App() {
       {detail && <DetailSheet place={detail} saved={isSaved(detail)} onToggleSave={toggleSave} onClose={() => setDetail(null)} onToast={setToast} />}
       <SavedPanel open={savedOpen} saved={saved} onClose={() => setSavedOpen(false)} onOpenPlace={(p) => { setSavedOpen(false); setDetail(p); }} onToggleSave={toggleSave} />
       {toast && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[60] bg-ink text-white text-sm font-medium px-4 py-2.5 rounded-full shadow-lg rise">{toast}</div>
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[60] bg-ink text-white text-base font-medium px-5 py-3 rounded-full shadow-lg rise">{toast}</div>
       )}
 
-      <footer className="border-t border-line py-8 text-center text-xs text-sub">
+      <footer className="border-t border-line py-8 text-center text-sm text-sub">
         식객·수요미식회는 큐레이션 데이터 · 사진·평점·거리·영업정보는 구글/네이버 실시간
       </footer>
     </div>
