@@ -1,0 +1,6 @@
+README.md
+schema.sql
+setup-db.js
+*.png
+*.txt
+.env*

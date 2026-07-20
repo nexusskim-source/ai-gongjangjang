@@ -1,0 +1,704 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>잠원마켓 · 우리 동네 중고거래</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+<script src="https://cdn.jsdelivr.net/npm/@babel/standalone@7.23.5/babel.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  :root{--orange:#ff6f0f;}
+  body{font-family:"Pretendard","Malgun Gothic","맑은 고딕",system-ui,sans-serif;background:#fff;}
+  .no-scrollbar::-webkit-scrollbar{display:none;}
+  .no-scrollbar{-ms-overflow-style:none;scrollbar-width:none;}
+  input:focus,textarea:focus,select:focus{outline:2px solid #ffd3b0;}
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<!-- ============ 설정 (anon public key 는 브라우저 공개용이라 안전) ============ -->
+<script>
+  window.APP_CONFIG = {
+    SUPABASE_URL: "https://fqkxikhfzpyhhdhnyxhq.supabase.co",
+    SUPABASE_ANON_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZxa3hpa2hmenB5aGhkaG55eGhxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI1MzcxMDEsImV4cCI6MjA5ODExMzEwMX0.sfnxt-6JN0yrC0qGFF2-lJil7q-Oq1rqqDdPKty4TRI"
+  };
+</script>
+
+<script type="text/babel" data-presets="react">
+const { useState, useEffect, useRef, useCallback } = React;
+
+// ---------- Supabase ----------
+const cfg = window.APP_CONFIG;
+const CONFIGURED = cfg.SUPABASE_ANON_KEY && cfg.SUPABASE_ANON_KEY !== "PASTE_ANON_KEY_HERE";
+const sb = CONFIGURED ? window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY) : null;
+
+const REGION = "잠원동";
+const CATEGORIES = ["디지털기기","생활가전","가구/인테리어","유아동","여성의류","남성패션/잡화","생활/주방","뷰티/미용","스포츠/레저","도서","반려동물","기타"];
+
+// ---------- utils ----------
+const won = n => (Number(n)||0).toLocaleString("ko-KR") + "원";
+function timeAgo(ts){
+  const s = Math.floor((Date.now() - new Date(ts).getTime())/1000);
+  if(s<60) return "방금 전";
+  if(s<3600) return Math.floor(s/60)+"분 전";
+  if(s<86400) return Math.floor(s/3600)+"시간 전";
+  return Math.floor(s/86400)+"일 전";
+}
+const STATUS_LABEL = {onsale:"판매중", reserved:"예약중", sold:"판매완료"};
+
+// ---------- tiny hash router ----------
+function useHashRoute(){
+  const [route, setRoute] = useState(window.location.hash.slice(1) || "/");
+  useEffect(()=>{
+    const on = ()=> setRoute(window.location.hash.slice(1) || "/");
+    window.addEventListener("hashchange", on);
+    return ()=> window.removeEventListener("hashchange", on);
+  },[]);
+  return route;
+}
+const go = (p)=>{ window.location.hash = p; };
+
+// ---------- profile helpers ----------
+async function getProfiles(ids){
+  const uniq = [...new Set(ids.filter(Boolean))];
+  if(!uniq.length) return {};
+  const { data } = await sb.from("profiles").select("id,nickname,region").in("id", uniq);
+  const map = {};
+  (data||[]).forEach(p=> map[p.id]=p);
+  return map;
+}
+async function ensureProfile(user){
+  if(!user) return;
+  const { data } = await sb.from("profiles").select("id").eq("id", user.id).maybeSingle();
+  if(!data){
+    const nick = (user.user_metadata && user.user_metadata.nickname) || (user.email||"").split("@")[0];
+    await sb.from("profiles").upsert({ id:user.id, nickname:nick, region:REGION }, { onConflict:"id", ignoreDuplicates:true });
+  }
+}
+
+// ============================================================
+//  App
+// ============================================================
+function App(){
+  const [session, setSession] = useState(null);
+  const [ready, setReady] = useState(false);
+  const route = useHashRoute();
+
+  useEffect(()=>{
+    if(!CONFIGURED){ setReady(true); return; }
+    sb.auth.getSession().then(({data})=>{ setSession(data.session); setReady(true); });
+    const { data:sub } = sb.auth.onAuthStateChange((_e, s)=>{ setSession(s); });
+    return ()=> sub.subscription.unsubscribe();
+  },[]);
+
+  useEffect(()=>{ if(session?.user) ensureProfile(session.user); },[session?.user?.id]);
+
+  if(!CONFIGURED) return <ConfigNotice/>;
+  if(!ready) return <Splash/>;
+
+  const user = session?.user || null;
+  const [path, ...rest] = route.split("/").filter(Boolean); // e.g. product/:id
+
+  let view;
+  if(route==="/" || !path) view = <ListView user={user}/>;
+  else if(path==="login") view = <AuthView/>;
+  else if(path==="new") view = user ? <EditProductView user={user}/> : <AuthView/>;
+  else if(path==="edit") view = user ? <EditProductView user={user} id={rest[0]}/> : <AuthView/>;
+  else if(path==="product") view = <DetailView user={user} id={rest[0]}/>;
+  else if(path==="chats") view = user ? <ChatListView user={user}/> : <AuthView/>;
+  else if(path==="chat") view = user ? <ChatRoomView user={user} roomId={rest[0]}/> : <AuthView/>;
+  else if(path==="my") view = user ? <MyPageView user={user}/> : <AuthView/>;
+  else view = <ListView user={user}/>;
+
+  const TAB_ROUTES = ["/", "/chats", "/my"];
+  const showNav = user && TAB_ROUTES.includes(route);
+  return (
+    <div className="max-w-md mx-auto min-h-screen bg-white shadow-sm relative">
+      {view}
+      {showNav && <BottomNav route={route}/>}
+    </div>
+  );
+}
+
+function Splash(){
+  return <div className="h-screen flex items-center justify-center text-orange-500 font-bold text-xl">잠원마켓 …</div>;
+}
+function ConfigNotice(){
+  return (
+    <div className="max-w-md mx-auto min-h-screen flex items-center justify-center p-6">
+      <div className="border border-orange-200 bg-orange-50 rounded-2xl p-6 text-sm text-gray-700 leading-relaxed">
+        <div className="text-lg font-bold text-orange-600 mb-2">⚙️ 설정 필요</div>
+        <p><b>index.html</b> 하단 <code>window.APP_CONFIG</code> 의
+        <code className="bg-white px-1 rounded"> SUPABASE_ANON_KEY </code>에
+        Supabase 대시보드 → Project Settings → API → <b>anon public</b> 키를 넣어주세요.</p>
+      </div>
+    </div>
+  );
+}
+
+// ---------- 공통 헤더 ----------
+function TopBar({title, back, right}){
+  return (
+    <div className="sticky top-0 z-20 bg-white/95 backdrop-blur border-b flex items-center h-14 px-3 gap-2">
+      {back ? <button onClick={()=>history.length>1?history.back():go("/")} className="text-2xl px-1">‹</button>
+            : <span className="text-2xl">🥕</span>}
+      <div className="font-bold text-lg flex-1 truncate">{title}</div>
+      {right}
+    </div>
+  );
+}
+
+function BottomNav({route}){
+  const items = [["/","홈","🏠"],["/chats","채팅","💬"],["/my","나의 잠원","👤"]];
+  return (
+    <div className="sticky bottom-0 max-w-md mx-auto bg-white border-t grid grid-cols-3 z-20">
+      {items.map(([to,label,ic])=>{
+        const active = route===to;
+        return <button key={to} onClick={()=>go(to)}
+          className={"py-2.5 text-xs flex flex-col items-center gap-0.5 "+(active?"text-orange-500 font-bold":"text-gray-400")}>
+          <span className="text-xl">{ic}</span>{label}
+        </button>;
+      })}
+    </div>
+  );
+}
+
+// ============================================================
+//  Auth
+// ============================================================
+function AuthView(){
+  const [mode, setMode] = useState("login"); // login | signup
+  const [email, setEmail] = useState("");
+  const [pw, setPw] = useState("");
+  const [nick, setNick] = useState("");
+  const [msg, setMsg] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  async function submit(e){
+    e.preventDefault(); setMsg(""); setBusy(true);
+    try{
+      if(mode==="signup"){
+        const { data, error } = await sb.auth.signUp({
+          email, password:pw, options:{ data:{ nickname: nick||email.split("@")[0], region:REGION } }
+        });
+        if(error) throw error;
+        if(!data.session){
+          setMsg("가입 완료! 이메일 인증이 켜져 있으면 메일 확인 후 로그인하세요."); setMode("login");
+        } else { await ensureProfile(data.user); go("/"); }
+      }else{
+        const { data, error } = await sb.auth.signInWithPassword({ email, password:pw });
+        if(error) throw error;
+        await ensureProfile(data.user); go("/");
+      }
+    }catch(err){ setMsg("⚠️ "+(err.message||"오류")); }
+    finally{ setBusy(false); }
+  }
+
+  return (
+    <div className="min-h-screen flex flex-col">
+      <div className="flex-1 flex flex-col justify-center px-7">
+        <div className="text-5xl mb-2">🥕</div>
+        <h1 className="text-2xl font-extrabold">잠원마켓</h1>
+        <p className="text-gray-500 mb-6">우리 동네 <b>잠원동</b> 중고 직거래</p>
+
+        <div className="flex mb-5 bg-gray-100 rounded-xl p-1 text-sm font-semibold">
+          {[["login","로그인"],["signup","회원가입"]].map(([m,l])=>(
+            <button key={m} onClick={()=>{setMode(m);setMsg("");}}
+              className={"flex-1 py-2 rounded-lg "+(mode===m?"bg-white shadow text-orange-500":"text-gray-500")}>{l}</button>
+          ))}
+        </div>
+
+        <form onSubmit={submit} className="space-y-3">
+          {mode==="signup" && (
+            <input value={nick} onChange={e=>setNick(e.target.value)} placeholder="닉네임"
+              className="w-full border rounded-xl px-4 py-3"/>
+          )}
+          <input type="email" required value={email} onChange={e=>setEmail(e.target.value)} placeholder="이메일"
+            className="w-full border rounded-xl px-4 py-3"/>
+          <input type="password" required minLength={6} value={pw} onChange={e=>setPw(e.target.value)} placeholder="비밀번호 (6자 이상)"
+            className="w-full border rounded-xl px-4 py-3"/>
+          {mode==="signup" && (
+            <div className="flex items-center gap-2 text-sm bg-orange-50 border border-orange-200 rounded-xl px-4 py-3 text-orange-700">
+              📍 동네: <b>잠원동</b> <span className="text-orange-400 text-xs">(위치 자동 설정)</span>
+            </div>
+          )}
+          {msg && <div className="text-sm text-orange-600">{msg}</div>}
+          <button disabled={busy} className="w-full bg-orange-500 text-white font-bold py-3.5 rounded-xl disabled:opacity-50">
+            {busy? "처리 중…" : (mode==="signup"?"가입하고 시작하기":"로그인")}
+          </button>
+        </form>
+        <button onClick={()=>go("/")} className="mt-4 text-sm text-gray-400 mx-auto block">먼저 둘러보기 →</button>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+//  목록
+// ============================================================
+function ListView({user}){
+  const [items, setItems] = useState(null);
+  const [profiles, setProfiles] = useState({});
+  const [cat, setCat] = useState("전체");
+  const [q, setQ] = useState("");
+  const [favCounts, setFavCounts] = useState({});
+
+  const load = useCallback(async ()=>{
+    let query = sb.from("products").select("*").order("created_at",{ascending:false});
+    if(cat!=="전체") query = query.eq("category", cat);
+    if(q.trim()) query = query.or(`title.ilike.%${q.trim()}%,description.ilike.%${q.trim()}%`);
+    const { data } = await query;
+    setItems(data||[]);
+    setProfiles(await getProfiles((data||[]).map(p=>p.seller_id)));
+    const { data:favs } = await sb.from("favorites").select("product_id");
+    const c={}; (favs||[]).forEach(f=> c[f.product_id]=(c[f.product_id]||0)+1); setFavCounts(c);
+  },[cat,q]);
+
+  useEffect(()=>{ load(); },[cat]);
+  useEffect(()=>{ const t=setTimeout(load,300); return ()=>clearTimeout(t); },[q]);
+
+  return (
+    <div className="pb-16">
+      <TopBar title={<span>잠원동 <span className="text-orange-500">▾</span></span>}
+        right={<button onClick={()=> user?go("/new"):go("/login")} className="text-sm bg-orange-500 text-white px-3 py-1.5 rounded-lg font-bold">＋ 팔기</button>}/>
+      <div className="p-3 space-y-3">
+        <input value={q} onChange={e=>setQ(e.target.value)} placeholder="🔍 잠원동 물품 검색"
+          className="w-full bg-gray-100 rounded-xl px-4 py-2.5 text-sm"/>
+        <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1">
+          {["전체",...CATEGORIES].map(c=>(
+            <button key={c} onClick={()=>setCat(c)}
+              className={"whitespace-nowrap px-3 py-1.5 rounded-full text-sm border "+(cat===c?"bg-orange-500 text-white border-orange-500":"bg-white text-gray-600")}>{c}</button>
+          ))}
+        </div>
+      </div>
+
+      {items===null ? <Loading/> :
+       items.length===0 ? <Empty text="아직 등록된 상품이 없어요"/> :
+       <ul>
+         {items.map(p=>(
+           <li key={p.id} onClick={()=>go("/product/"+p.id)}
+               className="flex gap-3 p-3 border-b active:bg-gray-50 cursor-pointer">
+             <div className="w-24 h-24 rounded-xl bg-gray-100 overflow-hidden flex-shrink-0 relative">
+               {p.images?.[0]
+                 ? <img src={p.images[0]} className="w-full h-full object-cover"/>
+                 : <div className="w-full h-full flex items-center justify-center text-2xl text-gray-300">🥕</div>}
+               {p.status!=="onsale" && <span className="absolute inset-0 bg-black/50 text-white text-xs font-bold flex items-center justify-center">{STATUS_LABEL[p.status]}</span>}
+             </div>
+             <div className="flex-1 min-w-0">
+               <div className="text-[15px] leading-snug line-clamp-2">{p.title}</div>
+               <div className="text-xs text-gray-400 mt-0.5">{profiles[p.seller_id]?.region||REGION} · {timeAgo(p.created_at)}</div>
+               <div className="font-bold mt-1">{won(p.price)}</div>
+               <div className="text-xs text-gray-400 mt-1 flex gap-2 justify-end">
+                 {favCounts[p.id] ? <span>❤️ {favCounts[p.id]}</span> : null}
+               </div>
+             </div>
+           </li>
+         ))}
+       </ul>}
+    </div>
+  );
+}
+
+// ============================================================
+//  상품 등록 / 수정
+// ============================================================
+function EditProductView({user, id}){
+  const editing = !!id;
+  const [title,setTitle]=useState(""); const [price,setPrice]=useState("");
+  const [desc,setDesc]=useState(""); const [category,setCategory]=useState("디지털기기");
+  const [status,setStatus]=useState("onsale");
+  const [existing,setExisting]=useState([]); // 기존 이미지 url
+  const [files,setFiles]=useState([]);       // 새 파일
+  const [busy,setBusy]=useState(false); const [err,setErr]=useState("");
+
+  useEffect(()=>{
+    if(!editing) return;
+    sb.from("products").select("*").eq("id",id).single().then(({data})=>{
+      if(!data) return;
+      if(data.seller_id!==user.id){ go("/product/"+id); return; }
+      setTitle(data.title); setPrice(String(data.price)); setDesc(data.description||"");
+      setCategory(data.category); setStatus(data.status); setExisting(data.images||[]);
+    });
+  },[id]);
+
+  function pickFiles(e){
+    const chosen = Array.from(e.target.files);
+    const room = 3 - existing.length - files.length;
+    setFiles(f=>[...f, ...chosen.slice(0, Math.max(0,room))]);
+  }
+  const totalImgs = existing.length + files.length;
+
+  async function save(e){
+    e.preventDefault(); setErr("");
+    if(!title.trim()) return setErr("제목을 입력하세요");
+    setBusy(true);
+    try{
+      // 새 이미지 업로드
+      const uploaded=[];
+      for(let i=0;i<files.length;i++){
+        const f=files[i];
+        const ext=(f.name.split(".").pop()||"jpg").toLowerCase();
+        const path=`${user.id}/${Date.now()}_${i}.${ext}`;
+        const { error:upErr }=await sb.storage.from("product-images").upload(path,f,{upsert:false});
+        if(upErr) throw upErr;
+        uploaded.push(sb.storage.from("product-images").getPublicUrl(path).data.publicUrl);
+      }
+      const images=[...existing, ...uploaded].slice(0,3);
+      const payload={ title:title.trim(), price:parseInt(price||"0",10)||0, description:desc.trim(), category, status, images, region:REGION };
+      if(editing){
+        const { error }=await sb.from("products").update(payload).eq("id",id);
+        if(error) throw error; go("/product/"+id);
+      }else{
+        const { data, error }=await sb.from("products").insert({...payload, seller_id:user.id}).select().single();
+        if(error) throw error; go("/product/"+data.id);
+      }
+    }catch(e2){ setErr("⚠️ "+(e2.message||"저장 실패")); }
+    finally{ setBusy(false); }
+  }
+
+  return (
+    <div className="pb-24">
+      <TopBar back title={editing?"상품 수정":"상품 등록"}/>
+      <form onSubmit={save} className="p-4 space-y-4">
+        {/* 이미지 */}
+        <div className="flex gap-2 overflow-x-auto no-scrollbar">
+          <label className="w-20 h-20 flex-shrink-0 border-2 border-dashed rounded-xl flex flex-col items-center justify-center text-gray-400 text-xs cursor-pointer">
+            📷<span>{totalImgs}/3</span>
+            <input type="file" accept="image/*" multiple className="hidden" onChange={pickFiles} disabled={totalImgs>=3}/>
+          </label>
+          {existing.map((u,i)=>(
+            <div key={"e"+i} className="w-20 h-20 flex-shrink-0 relative rounded-xl overflow-hidden">
+              <img src={u} className="w-full h-full object-cover"/>
+              <button type="button" onClick={()=>setExisting(x=>x.filter((_,j)=>j!==i))}
+                className="absolute top-0.5 right-0.5 bg-black/60 text-white rounded-full w-5 h-5 text-xs">×</button>
+            </div>
+          ))}
+          {files.map((f,i)=>(
+            <div key={"f"+i} className="w-20 h-20 flex-shrink-0 relative rounded-xl overflow-hidden">
+              <img src={URL.createObjectURL(f)} className="w-full h-full object-cover"/>
+              <button type="button" onClick={()=>setFiles(x=>x.filter((_,j)=>j!==i))}
+                className="absolute top-0.5 right-0.5 bg-black/60 text-white rounded-full w-5 h-5 text-xs">×</button>
+            </div>
+          ))}
+        </div>
+
+        <input value={title} onChange={e=>setTitle(e.target.value)} placeholder="글 제목"
+          className="w-full border-b py-2.5 text-lg"/>
+        <div className="flex items-center border-b">
+          <span className="text-gray-500">₩</span>
+          <input value={price} onChange={e=>setPrice(e.target.value.replace(/[^0-9]/g,""))} placeholder="가격 (비워두면 나눔)"
+            className="flex-1 py-2.5 px-2"/>
+        </div>
+        <div>
+          <div className="text-sm text-gray-500 mb-2">카테고리</div>
+          <div className="flex flex-wrap gap-2">
+            {CATEGORIES.map(c=>(
+              <button type="button" key={c} onClick={()=>setCategory(c)}
+                className={"px-3 py-1.5 rounded-full text-sm border "+(category===c?"bg-orange-500 text-white border-orange-500":"bg-white text-gray-600")}>{c}</button>
+            ))}
+          </div>
+        </div>
+        <textarea value={desc} onChange={e=>setDesc(e.target.value)} rows={5}
+          placeholder="잠원동 이웃에게 상품을 소개해주세요. (상태, 구입 시기 등)"
+          className="w-full border rounded-xl p-3"/>
+        {editing && (
+          <div>
+            <div className="text-sm text-gray-500 mb-2">상태</div>
+            <div className="flex gap-2">
+              {Object.entries(STATUS_LABEL).map(([k,v])=>(
+                <button type="button" key={k} onClick={()=>setStatus(k)}
+                  className={"px-3 py-1.5 rounded-full text-sm border "+(status===k?"bg-gray-800 text-white":"bg-white text-gray-600")}>{v}</button>
+              ))}
+            </div>
+          </div>
+        )}
+        {err && <div className="text-sm text-orange-600">{err}</div>}
+        <button disabled={busy} className="fixed bottom-0 left-0 right-0 max-w-md mx-auto bg-orange-500 text-white font-bold py-4 disabled:opacity-50">
+          {busy? "저장 중…" : (editing?"수정 완료":"작성 완료")}
+        </button>
+      </form>
+    </div>
+  );
+}
+
+// ============================================================
+//  상세
+// ============================================================
+function DetailView({user, id}){
+  const [p,setP]=useState(null); const [seller,setSeller]=useState(null);
+  const [slide,setSlide]=useState(0);
+  const [fav,setFav]=useState(false); const [favCount,setFavCount]=useState(0);
+
+  async function load(){
+    const { data }=await sb.from("products").select("*").eq("id",id).maybeSingle();
+    setP(data);
+    if(data){
+      const pm=await getProfiles([data.seller_id]); setSeller(pm[data.seller_id]);
+      const { data:favs }=await sb.from("favorites").select("user_id").eq("product_id",id);
+      setFavCount((favs||[]).length);
+      if(user) setFav((favs||[]).some(f=>f.user_id===user.id));
+    }
+  }
+  useEffect(()=>{ load(); },[id,user?.id]);
+
+  async function toggleFav(){
+    if(!user) return go("/login");
+    if(fav){ await sb.from("favorites").delete().eq("user_id",user.id).eq("product_id",id); setFav(false); setFavCount(c=>c-1); }
+    else{ await sb.from("favorites").insert({user_id:user.id, product_id:id}); setFav(true); setFavCount(c=>c+1); }
+  }
+  async function startChat(){
+    if(!user) return go("/login");
+    if(user.id===p.seller_id) return;
+    const { data:ex }=await sb.from("chat_rooms").select("id").eq("product_id",id).eq("buyer_id",user.id).maybeSingle();
+    if(ex) return go("/chat/"+ex.id);
+    const { data, error }=await sb.from("chat_rooms").insert({product_id:id, buyer_id:user.id, seller_id:p.seller_id}).select().single();
+    if(!error) go("/chat/"+data.id);
+  }
+  async function del(){
+    if(!confirm("삭제할까요?")) return;
+    await sb.from("products").delete().eq("id",id); go("/");
+  }
+
+  if(p===null) return (<div><TopBar back title=""/><Loading/></div>);
+  const mine = user && user.id===p.seller_id;
+  const imgs = p.images?.length? p.images : [null];
+
+  return (
+    <div className="pb-20">
+      <TopBar back title="" right={mine &&
+        <div className="flex gap-3 text-sm">
+          <button onClick={()=>go("/edit/"+id)} className="text-gray-600">수정</button>
+          <button onClick={del} className="text-red-500">삭제</button>
+        </div>}/>
+      {/* 이미지 슬라이드 */}
+      <div className="relative bg-gray-100 aspect-square">
+        {imgs[slide]
+          ? <img src={imgs[slide]} className="w-full h-full object-cover"/>
+          : <div className="w-full h-full flex items-center justify-center text-6xl text-gray-300">🥕</div>}
+        {imgs.length>1 && <>
+          <button onClick={()=>setSlide(s=>(s-1+imgs.length)%imgs.length)} className="absolute left-2 top-1/2 -translate-y-1/2 bg-black/40 text-white w-9 h-9 rounded-full">‹</button>
+          <button onClick={()=>setSlide(s=>(s+1)%imgs.length)} className="absolute right-2 top-1/2 -translate-y-1/2 bg-black/40 text-white w-9 h-9 rounded-full">›</button>
+          <div className="absolute bottom-2 w-full flex justify-center gap-1.5">
+            {imgs.map((_,i)=><span key={i} className={"w-2 h-2 rounded-full "+(i===slide?"bg-white":"bg-white/40")}/>)}
+          </div>
+        </>}
+      </div>
+
+      <div className="p-4 border-b flex items-center gap-3">
+        <div className="w-10 h-10 rounded-full bg-orange-100 flex items-center justify-center">👤</div>
+        <div>
+          <div className="font-semibold">{seller?.nickname||"이웃"}</div>
+          <div className="text-xs text-gray-400">{seller?.region||REGION}</div>
+        </div>
+      </div>
+
+      <div className="p-4">
+        {p.status!=="onsale" && <span className="inline-block bg-gray-800 text-white text-xs px-2 py-0.5 rounded mb-2">{STATUS_LABEL[p.status]}</span>}
+        <h1 className="text-xl font-bold">{p.title}</h1>
+        <div className="text-sm text-gray-400 mt-1">{p.category} · {timeAgo(p.created_at)}</div>
+        <div className="text-2xl font-extrabold mt-3">{Number(p.price)? won(p.price) : "나눔 🧡"}</div>
+        <p className="mt-4 whitespace-pre-wrap leading-relaxed text-[15px]">{p.description}</p>
+        <div className="mt-6 text-sm text-gray-400">관심 {favCount} · 채팅 문의</div>
+      </div>
+
+      {/* 하단 바 */}
+      <div className="fixed bottom-0 left-0 right-0 max-w-md mx-auto bg-white border-t flex items-center gap-3 px-4 py-3">
+        <button onClick={toggleFav} className="text-3xl">{fav?"❤️":"🤍"}</button>
+        <div className="w-px h-8 bg-gray-200"/>
+        {mine
+          ? <div className="flex-1 text-center text-gray-500 font-semibold">내가 등록한 상품</div>
+          : <button onClick={startChat} className="flex-1 bg-orange-500 text-white font-bold py-3 rounded-xl">채팅하기</button>}
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+//  채팅 목록
+// ============================================================
+function ChatListView({user}){
+  const [rooms,setRooms]=useState(null); const [meta,setMeta]=useState({});
+  useEffect(()=>{ (async()=>{
+    const { data }=await sb.from("chat_rooms").select("*").or(`buyer_id.eq.${user.id},seller_id.eq.${user.id}`).order("created_at",{ascending:false});
+    setRooms(data||[]);
+    const pids=[...new Set((data||[]).map(r=>r.product_id))];
+    const uids=[...new Set((data||[]).flatMap(r=>[r.buyer_id,r.seller_id]))];
+    const { data:prods }=await sb.from("products").select("id,title,images").in("id",pids.length?pids:["00000000-0000-0000-0000-000000000000"]);
+    const profs=await getProfiles(uids);
+    const pm={}; (prods||[]).forEach(x=>pm[x.id]=x);
+    // 마지막 메시지
+    const last={};
+    for(const r of (data||[])){
+      const { data:m }=await sb.from("messages").select("content,created_at").eq("room_id",r.id).order("created_at",{ascending:false}).limit(1);
+      last[r.id]=m?.[0]||null;
+    }
+    setMeta({pm,profs,last});
+  })(); },[user.id]);
+
+  if(rooms===null) return (<div><TopBar title="채팅"/><Loading/></div>);
+  return (
+    <div className="pb-16">
+      <TopBar title="채팅"/>
+      {rooms.length===0? <Empty text="아직 채팅이 없어요"/> :
+        <ul>{rooms.map(r=>{
+          const otherId = r.buyer_id===user.id? r.seller_id : r.buyer_id;
+          const other = meta.profs?.[otherId]; const prod=meta.pm?.[r.product_id]; const lm=meta.last?.[r.id];
+          return (
+            <li key={r.id} onClick={()=>go("/chat/"+r.id)} className="flex gap-3 items-center p-3 border-b active:bg-gray-50 cursor-pointer">
+              <div className="w-12 h-12 rounded-full bg-orange-100 flex items-center justify-center text-xl">👤</div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="font-semibold">{other?.nickname||"이웃"}</span>
+                  <span className="text-xs text-gray-400">{other?.region||REGION}</span>
+                </div>
+                <div className="text-sm text-gray-500 truncate">{lm? lm.content : "대화를 시작해보세요"}</div>
+              </div>
+              <div className="w-11 h-11 rounded-lg bg-gray-100 overflow-hidden flex-shrink-0">
+                {prod?.images?.[0]? <img src={prod.images[0]} className="w-full h-full object-cover"/> : <div className="w-full h-full flex items-center justify-center">🥕</div>}
+              </div>
+            </li>
+          );
+        })}</ul>}
+    </div>
+  );
+}
+
+// ============================================================
+//  채팅방 (Polling)
+// ============================================================
+function ChatRoomView({user, roomId}){
+  const [room,setRoom]=useState(null); const [product,setProduct]=useState(null); const [other,setOther]=useState(null);
+  const [msgs,setMsgs]=useState([]); const [text,setText]=useState("");
+  const endRef=useRef(null);
+
+  useEffect(()=>{ (async()=>{
+    const { data:r }=await sb.from("chat_rooms").select("*").eq("id",roomId).maybeSingle();
+    setRoom(r);
+    if(r){
+      const { data:pr }=await sb.from("products").select("id,title,price,images,status").eq("id",r.product_id).maybeSingle();
+      setProduct(pr);
+      const otherId = r.buyer_id===user.id? r.seller_id : r.buyer_id;
+      const pm=await getProfiles([otherId]); setOther(pm[otherId]);
+    }
+  })(); },[roomId]);
+
+  const fetchMsgs=useCallback(async()=>{
+    const { data }=await sb.from("messages").select("*").eq("room_id",roomId).order("created_at",{ascending:true});
+    setMsgs(prev=> (data && data.length!==prev.length)? data : (data||prev));
+  },[roomId]);
+
+  useEffect(()=>{ fetchMsgs(); const t=setInterval(fetchMsgs,2500); return ()=>clearInterval(t); },[fetchMsgs]);
+  useEffect(()=>{ endRef.current?.scrollIntoView({behavior:"smooth"}); },[msgs.length]);
+
+  async function send(e){
+    e.preventDefault(); const t=text.trim(); if(!t) return; setText("");
+    await sb.from("messages").insert({room_id:roomId, sender_id:user.id, content:t});
+    fetchMsgs();
+  }
+
+  return (
+    <div className="flex flex-col h-screen">
+      <TopBar back title={other?.nickname||"채팅"}/>
+      {product && (
+        <div onClick={()=>go("/product/"+product.id)} className="flex items-center gap-3 p-2.5 border-b bg-gray-50 cursor-pointer">
+          <div className="w-11 h-11 rounded-lg bg-gray-100 overflow-hidden">
+            {product.images?.[0]? <img src={product.images[0]} className="w-full h-full object-cover"/> : <div className="w-full h-full flex items-center justify-center">🥕</div>}
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="text-xs text-gray-400">{STATUS_LABEL[product.status]}</div>
+            <div className="text-sm truncate">{product.title}</div>
+          </div>
+          <div className="font-bold text-sm">{Number(product.price)?won(product.price):"나눔"}</div>
+        </div>
+      )}
+      <div className="flex-1 overflow-y-auto p-3 space-y-2 bg-gray-50">
+        {msgs.map(m=>{
+          const mine=m.sender_id===user.id;
+          return (
+            <div key={m.id} className={"flex "+(mine?"justify-end":"justify-start")}>
+              <div className={"max-w-[75%] px-3.5 py-2 rounded-2xl text-[15px] "+(mine?"bg-orange-500 text-white rounded-br-sm":"bg-white border rounded-bl-sm")}>
+                {m.content}
+                <div className={"text-[10px] mt-0.5 "+(mine?"text-orange-100":"text-gray-400")}>{new Date(m.created_at).toLocaleTimeString("ko-KR",{hour:"2-digit",minute:"2-digit"})}</div>
+              </div>
+            </div>
+          );
+        })}
+        <div ref={endRef}/>
+      </div>
+      <form onSubmit={send} className="flex gap-2 p-2 border-t bg-white">
+        <input value={text} onChange={e=>setText(e.target.value)} placeholder="메시지 보내기"
+          className="flex-1 bg-gray-100 rounded-full px-4 py-2.5"/>
+        <button className="bg-orange-500 text-white font-bold px-4 rounded-full">전송</button>
+      </form>
+    </div>
+  );
+}
+
+// ============================================================
+//  마이페이지
+// ============================================================
+function MyPageView({user}){
+  const [tab,setTab]=useState("mine");
+  const [profile,setProfile]=useState(null);
+  const [mine,setMine]=useState(null); const [liked,setLiked]=useState(null);
+
+  useEffect(()=>{ (async()=>{
+    const pm=await getProfiles([user.id]); setProfile(pm[user.id]);
+    const { data:m }=await sb.from("products").select("*").eq("seller_id",user.id).order("created_at",{ascending:false});
+    setMine(m||[]);
+    const { data:favs }=await sb.from("favorites").select("product_id").eq("user_id",user.id);
+    const ids=(favs||[]).map(f=>f.product_id);
+    if(ids.length){ const { data:lp }=await sb.from("products").select("*").in("id",ids); setLiked(lp||[]); }
+    else setLiked([]);
+  })(); },[user.id]);
+
+  async function logout(){ await sb.auth.signOut(); go("/"); }
+  const list = tab==="mine"? mine : liked;
+
+  return (
+    <div className="pb-16">
+      <TopBar title="나의 잠원" right={<button onClick={logout} className="text-sm text-gray-500">로그아웃</button>}/>
+      <div className="p-4 flex items-center gap-3 border-b">
+        <div className="w-14 h-14 rounded-full bg-orange-100 flex items-center justify-center text-2xl">👤</div>
+        <div>
+          <div className="font-bold text-lg">{profile?.nickname||"이웃"}</div>
+          <div className="text-sm text-gray-400">📍 {profile?.region||REGION} · {user.email}</div>
+        </div>
+      </div>
+      <div className="grid grid-cols-3 border-b">
+        <button onClick={()=>go("/chats")} className="py-3 text-sm flex flex-col items-center gap-1"><span className="text-xl">💬</span>채팅</button>
+        <button onClick={()=>setTab("mine")} className={"py-3 text-sm flex flex-col items-center gap-1 "+(tab==="mine"?"text-orange-500 font-bold":"")}><span className="text-xl">📦</span>판매내역</button>
+        <button onClick={()=>setTab("liked")} className={"py-3 text-sm flex flex-col items-center gap-1 "+(tab==="liked"?"text-orange-500 font-bold":"")}><span className="text-xl">❤️</span>관심목록</button>
+      </div>
+
+      {list===null? <Loading/> :
+       list.length===0? <Empty text={tab==="mine"?"등록한 상품이 없어요":"관심 상품이 없어요"}/> :
+       <ul>{list.map(p=>(
+         <li key={p.id} onClick={()=>go("/product/"+p.id)} className="flex gap-3 p-3 border-b active:bg-gray-50 cursor-pointer">
+           <div className="w-20 h-20 rounded-xl bg-gray-100 overflow-hidden flex-shrink-0">
+             {p.images?.[0]? <img src={p.images[0]} className="w-full h-full object-cover"/> : <div className="w-full h-full flex items-center justify-center text-2xl text-gray-300">🥕</div>}
+           </div>
+           <div className="flex-1 min-w-0">
+             {tab==="mine" && p.status!=="onsale" && <span className="text-xs bg-gray-800 text-white px-1.5 py-0.5 rounded">{STATUS_LABEL[p.status]}</span>}
+             <div className="line-clamp-2 text-[15px]">{p.title}</div>
+             <div className="text-xs text-gray-400">{timeAgo(p.created_at)}</div>
+             <div className="font-bold mt-0.5">{Number(p.price)?won(p.price):"나눔"}</div>
+           </div>
+         </li>
+       ))}</ul>}
+    </div>
+  );
+}
+
+// ---------- 부속 ----------
+function Loading(){ return <div className="py-20 text-center text-gray-400">불러오는 중…</div>; }
+function Empty({text}){ return <div className="py-24 text-center text-gray-400"><div className="text-4xl mb-2">🥕</div>{text}</div>; }
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>

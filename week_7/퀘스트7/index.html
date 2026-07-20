@@ -1,0 +1,781 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>여기어때 · 내 주변 맛집·카페 발견</title>
+<meta name="description" content="내 위치 기준으로 주변 맛집·카페를 상황(데이트·혼밥·작업 등)과 취향에 맞게 찾아주는 앱. 구글 평점 + 수요미식회·식객 방송 맛집 큐레이션." />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%93%8D%3C/text%3E%3C/svg%3E" />
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  tailwind.config = {
+    theme: { extend: {
+      colors: {
+        brand: "#0f9d6f", brandDark: "#0b7d59", brandSoft: "#e8f6f0",
+        ink: "#1b1e1c", sub: "#6b7280", line: "#ededec", bg: "#fafafa",
+        warn: "#b4690e", danger: "#c0392b",
+      },
+      borderRadius: { card: "16px" },
+      fontFamily: { sans: ["Pretendard", "Malgun Gothic", "맑은 고딕", "-apple-system", "sans-serif"] },
+      maxWidth: { content: "1200px" },
+    } },
+  };
+</script>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<!-- ⚠️ Babel 버전 고정: 최신은 이 환경에서 빈 화면 유발 이력 있음 -->
+<script src="https://unpkg.com/@babel/standalone@7.23.5/babel.min.js"></script>
+<style>
+  :root { color-scheme: light; }
+  * { -webkit-tap-highlight-color: transparent; }
+  body { font-family: "Pretendard","Malgun Gothic","맑은 고딕",-apple-system,sans-serif; background: #fafafa; color: #1b1e1c; }
+  .no-scrollbar::-webkit-scrollbar { display: none; }
+  .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+  .rise { animation: rise .2s ease both; }
+  @keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+  .shimmer { background: linear-gradient(100deg, #eee 30%, #f5f5f5 50%, #eee 70%); background-size: 200% 100%; animation: sh 1.2s infinite; }
+  @keyframes sh { to { background-position: -200% 0; } }
+  :focus-visible { outline: 2px solid #0f9d6f; outline-offset: 2px; border-radius: 6px; }
+  @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; } }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect, useRef, useMemo, useCallback } = React;
+
+/* ───────────────────────── 상수 ───────────────────────── */
+const SITUATIONS = [
+  { key: "date", label: "데이트", q: "데이트 맛집" },
+  { key: "honbap", label: "혼밥", q: "혼밥 맛집" },
+  { key: "family", label: "가족식사", q: "가족 식당" },
+  { key: "quiet", label: "조용한 카페", q: "조용한 카페" },
+  { key: "work", label: "작업하기 좋은", q: "노트북 카페" },
+  { key: "value", label: "가성비", q: "가성비 맛집" },
+  { key: "parking", label: "주차 가능", flag: "parking" },
+  { key: "open", label: "지금 영업 중", flag: "open" },
+];
+const CATEGORIES = [
+  { key: "korean", label: "한식", q: "한식" },
+  { key: "jp", label: "일식", q: "일식" },
+  { key: "cn", label: "중식", q: "중식" },
+  { key: "western", label: "양식", q: "양식" },
+  { key: "meat", label: "고기", q: "고기집" },
+  { key: "cafe", label: "카페", q: "카페" },
+  { key: "dessert", label: "디저트", q: "디저트 카페" },
+  { key: "noodle", label: "국수·분식", q: "국수 분식" },
+];
+const HOT_REGIONS = ["강남", "연희동", "홍대", "성수", "종로", "망원동", "을지로"];
+const SRC_BADGE = {
+  "식객": "bg-amber-50 text-amber-800 ring-1 ring-amber-200",
+  "수요미식회": "bg-rose-50 text-rose-700 ring-1 ring-rose-200",
+};
+
+/* ─────────────────────── 유틸 ─────────────────────── */
+function useLocalStorage(key, initial) {
+  const [v, setV] = useState(() => {
+    try { const s = localStorage.getItem(key); return s ? JSON.parse(s) : initial; } catch { return initial; }
+  });
+  useEffect(() => { try { localStorage.setItem(key, JSON.stringify(v)); } catch {} }, [key, v]);
+  return [v, setV];
+}
+const photoUrl = (p, w) => (p && p.photo ? `/api/photo?name=${encodeURIComponent(p.photo)}&w=${w || 640}` : null);
+const pid = (p) => (p.name + "·" + (p.address || p.region || "")).slice(0, 80);
+function distStr(p) {
+  if (p.distKm == null) return null;
+  return p.distKm < 1 ? Math.round(p.distKm * 1000) + "m" : p.distKm.toFixed(1) + "km";
+}
+function timeStr(p) {
+  if (p.walkMin != null && p.walkMin <= 25) return "걸어서 " + p.walkMin + "분";
+  if (p.driveMin != null) return "차로 " + p.driveMin + "분";
+  if (p.walkMin != null) return "걸어서 " + p.walkMin + "분";
+  return null;
+}
+const priceStr = (p) => (p.price ? "₩".repeat(p.price) : null);
+function keywordsOf(p) {
+  const k = [];
+  if (p.source) k.push(p.source);
+  if (p.rating != null && p.rating >= 4.5) k.push("평점 높음");
+  if (p.reviews >= 1000) k.push("리뷰 " + Math.round(p.reviews / 1000) + "천+");
+  else if (p.reviews >= 300 && k.length < 2) k.push("리뷰 많음");
+  if (p.parking === true && k.length < 3) k.push("주차");
+  return k.slice(0, 3);
+}
+async function getJSON(url) {
+  const r = await fetch(url);
+  let j = null; try { j = await r.json(); } catch {}
+  if (!r.ok) throw new Error((j && j.error) || "요청 실패");
+  return j;
+}
+
+/* ─────────────────────── 아이콘(단일 스타일 SVG) ─────────────────────── */
+const I = {
+  search: (c) => <svg viewBox="0 0 24 24" className={c} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3-3"/></svg>,
+  pin: (c) => <svg viewBox="0 0 24 24" className={c} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 21s7-6.4 7-11a7 7 0 1 0-14 0c0 4.6 7 11 7 11Z"/><circle cx="12" cy="10" r="2.5"/></svg>,
+  heart: (c, fill) => <svg viewBox="0 0 24 24" className={c} fill={fill ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2" strokeLinejoin="round"><path d="M12 20s-7-4.6-7-9.5A4.5 4.5 0 0 1 12 8a4.5 4.5 0 0 1 7 2.5C19 15.4 12 20 12 20Z"/></svg>,
+  star: (c) => <svg viewBox="0 0 24 24" className={c} fill="currentColor"><path d="m12 17-5.5 3 1-6.1L3 9.6l6.1-.9L12 3l2.9 5.7 6.1.9-4.5 4.3 1 6.1z"/></svg>,
+  list: (c) => <svg viewBox="0 0 24 24" className={c} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>,
+  map: (c) => <svg viewBox="0 0 24 24" className={c} fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round"><path d="m9 4 6 2 5-2v14l-5 2-6-2-5 2V6z"/><path d="M9 4v14M15 6v14"/></svg>,
+  share: (c) => <svg viewBox="0 0 24 24" className={c} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.6 13.5 6.8 4M15.4 6.5 8.6 10.5"/></svg>,
+  close: (c) => <svg viewBox="0 0 24 24" className={c} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>,
+  x2: (c) => <svg viewBox="0 0 24 24" className={c} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>,
+};
+
+/* ─────────────────────── Header ─────────────────────── */
+function Header({ locLabel, approx, onPrecise, savedCount, onOpenSaved }) {
+  return (
+    <header className="sticky top-0 z-30 bg-white/90 backdrop-blur border-b border-line">
+      <div className="max-w-content mx-auto px-4 sm:px-6 lg:px-8 h-14 flex items-center gap-3">
+        <div className="flex items-center gap-1.5 font-extrabold text-lg text-ink shrink-0">
+          <span className="text-brand">{I.pin("w-5 h-5")}</span>여기어때
+        </div>
+        <button onClick={onPrecise}
+          className="hidden sm:flex items-center gap-1 text-sm text-sub hover:text-ink px-2 py-1 rounded-lg hover:bg-bg transition min-w-0"
+          title="정확한 위치로 다시 찾기">
+          <span className="text-brand">{I.pin("w-4 h-4")}</span>
+          <span className="truncate max-w-[180px]">{locLabel || "위치 확인 중"}</span>
+          {approx && <span className="text-xs text-warn ml-0.5">· 대략</span>}
+        </button>
+        <div className="flex-1" />
+        <button onClick={onOpenSaved}
+          className="relative flex items-center gap-1.5 text-sm font-semibold text-ink px-3 py-2 rounded-xl border border-line hover:border-brand hover:text-brand transition"
+          aria-label={`저장한 장소 ${savedCount}곳`}>
+          {I.heart("w-4 h-4", false)}<span className="hidden sm:inline">저장</span>
+          {savedCount > 0 && <span className="min-w-[18px] h-[18px] px-1 rounded-full bg-brand text-white text-[11px] font-bold flex items-center justify-center">{savedCount}</span>}
+        </button>
+      </div>
+    </header>
+  );
+}
+
+/* ─────────────────────── SearchBar ─────────────────────── */
+function SearchBar({ value, onChange, onSubmit, onUseLocation, locStatus }) {
+  return (
+    <div>
+      <form onSubmit={(e) => { e.preventDefault(); onSubmit(); }} className="flex gap-2">
+        <div className="relative flex-1">
+          <span className="absolute left-4 top-1/2 -translate-y-1/2 text-sub">{I.search("w-5 h-5")}</span>
+          <input
+            value={value} onChange={(e) => onChange(e.target.value)}
+            placeholder="지역, 지하철역, 음식점을 검색해보세요"
+            aria-label="장소 검색"
+            className="w-full h-[52px] pl-11 pr-4 rounded-xl border border-line bg-white text-[15px] placeholder:text-sub/80 focus:border-brand outline-none transition" />
+        </div>
+        <button type="submit"
+          className="h-[52px] px-5 rounded-xl bg-ink text-white font-semibold hover:bg-black transition shrink-0">검색</button>
+      </form>
+      <div className="mt-2 flex items-center gap-3">
+        <button onClick={onUseLocation} disabled={locStatus === "locating"}
+          className="inline-flex items-center gap-1.5 text-sm font-semibold text-brand hover:text-brandDark disabled:opacity-60 transition">
+          {I.pin("w-4 h-4")}
+          {locStatus === "locating" ? "현재 위치 확인 중…" : "현재 위치로 찾기"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/* ─────────────────────── Chip ─────────────────────── */
+function Chip({ active, onClick, children }) {
+  return (
+    <button onClick={onClick} aria-pressed={active}
+      className={"shrink-0 px-3.5 h-9 rounded-full text-sm font-medium border transition inline-flex items-center gap-1 " +
+        (active
+          ? "bg-brand text-white border-brand"
+          : "bg-white text-ink/80 border-line hover:border-brand/60 hover:text-ink")}>
+      {active && <span className="text-white">{I.star("w-3 h-3")}</span>}
+      {children}
+    </button>
+  );
+}
+
+/* ─────────────────────── Filters ─────────────────────── */
+function Filters({ situation, setSituation, category, setCategory }) {
+  const [openAll, setOpenAll] = useState(false);
+  const sit = openAll ? SITUATIONS : SITUATIONS.slice(0, 6);
+  return (
+    <div className="space-y-3">
+      <div>
+        <div className="text-xs font-semibold text-sub mb-2">상황·목적</div>
+        <div className="flex flex-wrap gap-2">
+          {sit.map((s) => (
+            <Chip key={s.key} active={situation === s.key} onClick={() => setSituation(situation === s.key ? null : s.key)}>{s.label}</Chip>
+          ))}
+          <button onClick={() => setOpenAll((v) => !v)}
+            className="shrink-0 px-3 h-9 rounded-full text-sm font-medium text-sub hover:text-ink border border-dashed border-line">
+            {openAll ? "접기" : "전체보기"}
+          </button>
+        </div>
+      </div>
+      <div>
+        <div className="text-xs font-semibold text-sub mb-2">음식 종류</div>
+        <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1 sm:flex-wrap">
+          {CATEGORIES.map((c) => (
+            <Chip key={c.key} active={category === c.key} onClick={() => setCategory(category === c.key ? null : c.key)}>{c.label}</Chip>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ─────────────────────── PlaceCard ─────────────────────── */
+function PlaceCard({ place, saved, onToggleSave, onOpen }) {
+  const [imgFail, setImgFail] = useState(false);
+  const url = photoUrl(place, 640);
+  const kws = keywordsOf(place);
+  const open = () => onOpen(place);
+  return (
+    <div role="button" tabIndex={0} onClick={open}
+      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(); } }}
+      className="group text-left bg-white rounded-card border border-line hover:border-brand/50 hover:shadow-[0_6px_20px_rgba(0,0,0,0.06)] transition cursor-pointer overflow-hidden focus:outline-none focus-visible:ring-2 focus-visible:ring-brand rise">
+      <div className="relative aspect-[16/10] bg-line overflow-hidden">
+        {url && !imgFail ? (
+          <img src={url} alt={`${place.name} 사진`} loading="lazy" onError={() => setImgFail(true)}
+            className="w-full h-full object-cover group-hover:scale-[1.03] transition duration-300" />
+        ) : (
+          <div className="w-full h-full flex items-center justify-center text-sub bg-gradient-to-br from-line to-white">
+            <span className="text-2xl font-bold text-sub/50">{place.name.slice(0, 2)}</span>
+          </div>
+        )}
+        {place.openNow != null && (
+          <span className={"absolute left-2.5 bottom-2.5 text-[11px] font-bold px-2 py-0.5 rounded-full " +
+            (place.openNow ? "bg-brand text-white" : "bg-black/60 text-white")}>
+            {place.openNow ? "영업 중" : "영업 종료"}
+          </span>
+        )}
+        <button onClick={(e) => { e.stopPropagation(); onToggleSave(place); }}
+          aria-label={saved ? "저장 취소" : "저장하기"} aria-pressed={saved}
+          className={"absolute right-2 top-2 w-9 h-9 rounded-full flex items-center justify-center backdrop-blur transition " +
+            (saved ? "bg-white text-brand" : "bg-black/35 text-white hover:bg-black/55")}>
+          {I.heart("w-[18px] h-[18px]", saved)}
+        </button>
+      </div>
+      <div className="p-3.5">
+        <div className="flex items-baseline gap-1.5">
+          <h3 className="font-bold text-[15px] text-ink truncate">{place.name}</h3>
+        </div>
+        <div className="mt-0.5 text-[13px] text-sub flex items-center gap-1.5 flex-wrap">
+          <span>{place.category || "음식점"}</span>
+          {priceStr(place) && <><span className="text-line">·</span><span>{priceStr(place)}</span></>}
+        </div>
+        <div className="mt-2 flex items-center gap-2 text-[13px]">
+          {place.rating != null ? (
+            <span className="inline-flex items-center gap-0.5 font-semibold text-ink">
+              <span className="text-amber-400">{I.star("w-3.5 h-3.5")}</span>{place.rating}
+              <span className="text-sub font-normal">({place.reviews.toLocaleString()})</span>
+            </span>
+          ) : <span className="text-sub">평점 정보 없음</span>}
+          {distStr(place) && <><span className="text-line">·</span><span className="text-brand font-semibold">{distStr(place)}</span></>}
+          {timeStr(place) && <span className="text-sub">· {timeStr(place)}</span>}
+        </div>
+        {kws.length > 0 && (
+          <div className="mt-2.5 flex flex-wrap gap-1.5">
+            {kws.map((k, i) => (
+              <span key={i} className={"text-[11px] px-2 py-0.5 rounded-full " + (SRC_BADGE[k] || "bg-bg text-sub ring-1 ring-line")}>{k}</span>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function SkeletonCard() {
+  return (
+    <div className="bg-white rounded-card border border-line overflow-hidden">
+      <div className="aspect-[16/10] shimmer" />
+      <div className="p-3.5 space-y-2">
+        <div className="h-4 w-2/3 shimmer rounded" />
+        <div className="h-3 w-1/3 shimmer rounded" />
+        <div className="h-3 w-1/2 shimmer rounded" />
+      </div>
+    </div>
+  );
+}
+
+/* ─────────────────────── 가로 섹션 ─────────────────────── */
+function Section({ title, subtitle, items, ...rest }) {
+  if (!items || items.length === 0) return null;
+  return (
+    <section className="mt-7">
+      <div className="flex items-baseline justify-between mb-3">
+        <div>
+          <h2 className="text-lg font-bold text-ink">{title}</h2>
+          {subtitle && <p className="text-[13px] text-sub mt-0.5">{subtitle}</p>}
+        </div>
+      </div>
+      <div className="flex gap-3 overflow-x-auto no-scrollbar pb-1 -mx-1 px-1
+                      sm:grid sm:grid-cols-2 lg:grid-cols-4 sm:overflow-visible">
+        {items.map((p) => (
+          <div key={pid(p)} className="w-[260px] shrink-0 sm:w-auto">
+            <PlaceCard place={p} {...rest} />
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+/* ─────────────────────── 지도 패널 ─────────────────────── */
+function MapPanel({ items, selected, onSelect }) {
+  const [fail, setFail] = useState(false);
+  const pts = items.filter((p) => p.lat != null);
+  const center = pts[selected] || pts[0];
+  const markers = pts.map((p) => `${p.lat},${p.lng}`).join(";");
+  const src = center
+    ? `/api/staticmap?size=640x420&center=${center.lat},${center.lng}&markers=${encodeURIComponent(markers)}`
+    : null;
+  return (
+    <div className="lg:grid lg:grid-cols-2 lg:gap-4">
+      <div className="lg:sticky lg:top-20 lg:h-[calc(100vh-6rem)] mb-4 lg:mb-0">
+        {src && !fail ? (
+          <img src={src} onError={() => setFail(true)} alt="검색 결과 지도"
+            className="w-full h-56 lg:h-full object-cover rounded-card border border-line" />
+        ) : (
+          <div className="w-full h-56 lg:h-full rounded-card border border-line bg-white flex flex-col items-center justify-center text-center px-6">
+            <span className="text-brand mb-2">{I.map("w-8 h-8")}</span>
+            <p className="text-sm text-sub">지도 미리보기를 불러오지 못했어요.<br />각 장소 카드의 <b className="text-ink">지도 보기</b>로 위치를 확인해 주세요.</p>
+          </div>
+        )}
+      </div>
+      <div className="space-y-2">
+        {pts.map((p, i) => (
+          <button key={pid(p)} onClick={() => onSelect(i)}
+            className={"w-full text-left flex gap-3 p-2.5 rounded-xl border transition " +
+              (selected === i ? "border-brand bg-brandSoft" : "border-line bg-white hover:border-brand/40")}>
+            <span className={"w-6 h-6 rounded-full text-white text-xs font-bold flex items-center justify-center shrink-0 " + (selected === i ? "bg-brandDark" : "bg-brand")}>{i + 1}</span>
+            <span className="min-w-0">
+              <span className="block font-semibold text-sm text-ink truncate">{p.name}</span>
+              <span className="block text-xs text-sub truncate">{p.category} · {distStr(p) || p.address}</span>
+            </span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ─────────────────────── 상태 컴포넌트 ─────────────────────── */
+function EmptyState({ onReset, onWiden }) {
+  return (
+    <div className="text-center py-16 px-6 rise">
+      <div className="text-sub mb-3 flex justify-center">{I.search("w-9 h-9")}</div>
+      <p className="font-semibold text-ink">이 조건에 맞는 곳을 못 찾았어요</p>
+      <p className="text-sm text-sub mt-1">필터를 줄이거나 검색 범위를 넓혀볼까요?</p>
+      <div className="mt-4 flex gap-2 justify-center flex-wrap">
+        <button onClick={onReset} className="px-4 h-10 rounded-xl border border-line font-semibold text-sm hover:border-brand hover:text-brand transition">필터 초기화</button>
+        <button onClick={onWiden} className="px-4 h-10 rounded-xl bg-ink text-white font-semibold text-sm hover:bg-black transition">전체 맛집 보기</button>
+      </div>
+    </div>
+  );
+}
+function ErrorState({ msg, onRetry }) {
+  return (
+    <div className="text-center py-16 px-6 rise">
+      <p className="font-semibold text-ink">잠시 문제가 생겼어요</p>
+      <p className="text-sm text-sub mt-1">{msg || "네트워크 상태를 확인한 뒤 다시 시도해 주세요."}</p>
+      <button onClick={onRetry} className="mt-4 px-4 h-10 rounded-xl bg-ink text-white font-semibold text-sm hover:bg-black transition">다시 시도</button>
+    </div>
+  );
+}
+
+/* ─────────────────────── 상세 시트 ─────────────────────── */
+function DetailSheet({ place, saved, onToggleSave, onClose, onToast }) {
+  useEffect(() => {
+    const h = (e) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", h);
+    document.body.style.overflow = "hidden";
+    return () => { window.removeEventListener("keydown", h); document.body.style.overflow = ""; };
+  }, [onClose]);
+  if (!place) return null;
+  const url = photoUrl(place, 900);
+  const naver = "https://map.naver.com/p/search/" + encodeURIComponent((place.region || "") + " " + place.name);
+  const share = async () => {
+    const text = `${place.name} — ${place.category || ""}`;
+    try {
+      if (navigator.share) await navigator.share({ title: place.name, text, url: place.mapUri || naver });
+      else { await navigator.clipboard.writeText(place.mapUri || naver); onToast("링크를 복사했어요"); }
+    } catch {}
+  };
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center" role="dialog" aria-modal="true" aria-label={place.name}>
+      <div className="absolute inset-0 bg-black/40" onClick={onClose} />
+      <div className="relative bg-white w-full sm:max-w-md sm:rounded-card rounded-t-2xl max-h-[90vh] overflow-y-auto rise">
+        <div className="relative aspect-[16/10] bg-line">
+          {url ? <img src={url} alt={`${place.name} 사진`} className="w-full h-full object-cover" />
+               : <div className="w-full h-full flex items-center justify-center text-2xl font-bold text-sub/50">{place.name.slice(0, 2)}</div>}
+          <button onClick={onClose} aria-label="닫기" className="absolute right-3 top-3 w-9 h-9 rounded-full bg-black/45 text-white flex items-center justify-center hover:bg-black/65">{I.close("w-5 h-5")}</button>
+          {place.openNow != null && (
+            <span className={"absolute left-3 bottom-3 text-xs font-bold px-2.5 py-1 rounded-full " + (place.openNow ? "bg-brand text-white" : "bg-black/60 text-white")}>{place.openNow ? "영업 중" : "영업 종료"}</span>
+          )}
+        </div>
+        <div className="p-5">
+          <h2 className="text-xl font-extrabold text-ink">{place.name}</h2>
+          <div className="mt-1 text-sm text-sub flex items-center gap-2 flex-wrap">
+            <span>{place.category || "음식점"}</span>
+            {priceStr(place) && <><span className="text-line">·</span>{priceStr(place)}</>}
+            {place.rating != null && <><span className="text-line">·</span><span className="inline-flex items-center gap-0.5 text-ink font-semibold"><span className="text-amber-400">{I.star("w-3.5 h-3.5")}</span>{place.rating} <span className="font-normal text-sub">({place.reviews.toLocaleString()})</span></span></>}
+          </div>
+          {(distStr(place) || timeStr(place)) && (
+            <div className="mt-1 text-sm"><span className="text-brand font-semibold">{distStr(place)}</span>{timeStr(place) && <span className="text-sub"> · {timeStr(place)}</span>}</div>
+          )}
+          <div className="mt-2 text-sm text-sub">{place.address}</div>
+          {place.reason && (
+            <div className={"mt-3 text-sm leading-relaxed rounded-xl p-3 " + (SRC_BADGE[place.source] || "bg-bg ring-1 ring-line")}>
+              {place.episode && <b className="mr-1">[{place.episode}]</b>}{place.reason}
+            </div>
+          )}
+          <div className="mt-4 grid grid-cols-4 gap-2">
+            <button onClick={() => onToggleSave(place)}
+              className={"col-span-1 h-11 rounded-xl font-semibold text-sm flex items-center justify-center gap-1 border transition " +
+                (saved ? "bg-brandSoft text-brandDark border-brand" : "border-line text-ink hover:border-brand")}>
+              {I.heart("w-4 h-4", saved)}
+            </button>
+            <a href={place.mapUri || naver} target="_blank" rel="noreferrer"
+              className="col-span-1 h-11 rounded-xl border border-line text-ink font-semibold text-sm flex items-center justify-center hover:border-brand transition">구글</a>
+            <a href={naver} target="_blank" rel="noreferrer"
+              className="col-span-1 h-11 rounded-xl border border-line text-ink font-semibold text-sm flex items-center justify-center hover:border-brand transition">네이버</a>
+            <button onClick={share} aria-label="공유"
+              className="col-span-1 h-11 rounded-xl border border-line text-ink flex items-center justify-center hover:border-brand transition">{I.share("w-4 h-4")}</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ─────────────────────── 저장 목록 패널 ─────────────────────── */
+function SavedPanel({ open, saved, onClose, onOpenPlace, onToggleSave }) {
+  useEffect(() => {
+    if (!open) return;
+    const h = (e) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", h); return () => window.removeEventListener("keydown", h);
+  }, [open, onClose]);
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-50" role="dialog" aria-modal="true" aria-label="저장한 장소">
+      <div className="absolute inset-0 bg-black/40" onClick={onClose} />
+      <div className="absolute right-0 top-0 h-full w-full sm:w-[400px] bg-white shadow-xl overflow-y-auto rise">
+        <div className="sticky top-0 bg-white border-b border-line px-4 h-14 flex items-center justify-between">
+          <b className="text-ink">저장한 장소 {saved.length > 0 && <span className="text-brand">{saved.length}</span>}</b>
+          <button onClick={onClose} aria-label="닫기" className="w-9 h-9 flex items-center justify-center rounded-lg hover:bg-bg">{I.close("w-5 h-5")}</button>
+        </div>
+        {saved.length === 0 ? (
+          <div className="text-center text-sub py-20 px-6">
+            <div className="flex justify-center mb-2">{I.heart("w-8 h-8", false)}</div>
+            아직 저장한 곳이 없어요.<br />마음에 드는 곳의 <b className="text-ink">하트</b>를 눌러 담아보세요.
+          </div>
+        ) : (
+          <div className="p-3 space-y-2">
+            {saved.map((p) => (
+              <div key={pid(p)} className="flex gap-3 p-2 rounded-xl border border-line bg-white">
+                <button onClick={() => onOpenPlace(p)} className="flex gap-3 min-w-0 flex-1 text-left">
+                  <div className="w-16 h-16 rounded-lg bg-line overflow-hidden shrink-0">
+                    {photoUrl(p, 200) ? <img src={photoUrl(p, 200)} alt="" className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-sub/50 font-bold">{p.name.slice(0, 2)}</div>}
+                  </div>
+                  <div className="min-w-0">
+                    <div className="font-semibold text-sm text-ink truncate">{p.name}</div>
+                    <div className="text-xs text-sub truncate">{p.category} · {p.address || p.region}</div>
+                    {p.rating != null && <div className="text-xs text-ink mt-0.5">★ {p.rating}</div>}
+                  </div>
+                </button>
+                <button onClick={() => onToggleSave(p)} aria-label="저장 취소" className="text-brand shrink-0 self-start p-1">{I.heart("w-5 h-5", true)}</button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════ App ═══════════════════════ */
+function App() {
+  const [geo, setGeo] = useState(null);           // {lat,lng,label,approx}
+  const [locStatus, setLocStatus] = useState("locating");
+  const [query, setQuery] = useState("");
+  const [situation, setSituation] = useState(null);
+  const [category, setCategory] = useState(null);
+  const [view, setView] = useState("home");        // home | results
+  const [home, setHome] = useState(null);
+  const [results, setResults] = useState(null);
+  const [resultTab, setResultTab] = useState("all");
+  const [resultMode, setResultMode] = useState("list");
+  const [mapSel, setMapSel] = useState(0);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [detail, setDetail] = useState(null);
+  const [savedOpen, setSavedOpen] = useState(false);
+  const [toast, setToast] = useState("");
+
+  const [saved, setSaved] = useLocalStorage("mj_saved", []);
+  const [recent, setRecent] = useLocalStorage("mj_recent_search", []);
+  const [lastCond, setLastCond] = useLocalStorage("mj_last_cond", null);
+
+  const isSaved = useCallback((p) => saved.some((s) => pid(s) === pid(p)), [saved]);
+  const toggleSave = useCallback((p) => {
+    setSaved((cur) => cur.some((s) => pid(s) === pid(p)) ? cur.filter((s) => pid(s) !== pid(p)) : [{ ...p }, ...cur].slice(0, 100));
+    setToast(isSaved(p) ? "저장을 취소했어요" : "저장했어요");
+  }, [isSaved, setSaved]);
+
+  useEffect(() => { if (!toast) return; const t = setTimeout(() => setToast(""), 1800); return () => clearTimeout(t); }, [toast]);
+
+  // 마지막 조건 복원
+  useEffect(() => { if (lastCond) { setSituation(lastCond.situation || null); setCategory(lastCond.category || null); } }, []);
+
+  // 부팅: IP 대략 위치 → 홈 미리보기
+  const loadHome = useCallback(async (g) => {
+    try {
+      const j = await getJSON(`/api/home?lat=${g.lat}&lng=${g.lng}`);
+      setHome(j);
+    } catch (e) { /* 홈 실패해도 화면은 유지 */ }
+  }, []);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const j = await getJSON("/api/iploc");
+        const g = { lat: j.lat, lng: j.lng, label: j.city || "내 위치", approx: true };
+        setGeo(g); setLocStatus("approx"); loadHome(g);
+      } catch { setLocStatus("failed"); }
+    })();
+  }, [loadHome]);
+
+  // 정확한 위치(GPS)
+  const usePrecise = useCallback((then) => {
+    if (!navigator.geolocation) { fallbackIp(then); return; }
+    setLocStatus("locating");
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const g = { lat: pos.coords.latitude, lng: pos.coords.longitude, label: "현재 위치", approx: false };
+        setGeo(g); setLocStatus("ok"); then ? then(g) : loadHome(g);
+      },
+      async () => { await fallbackIp(then); },
+      { enableHighAccuracy: false, timeout: 12000, maximumAge: 120000 }
+    );
+  }, [loadHome]);
+  const fallbackIp = useCallback(async (then) => {
+    try {
+      const j = await getJSON("/api/iploc");
+      const g = { lat: j.lat, lng: j.lng, label: j.city || "내 위치", approx: true };
+      setGeo(g); setLocStatus("approx"); then ? then(g) : loadHome(g);
+    } catch { setLocStatus("failed"); setError(""); }
+  }, [loadHome]);
+
+  // 검색어(q)·플래그 구성
+  const buildParams = useCallback(() => {
+    const sit = SITUATIONS.find((s) => s.key === situation);
+    const cat = CATEGORIES.find((c) => c.key === category);
+    const parts = [];
+    if (cat) parts.push(cat.q);
+    if (sit && sit.q) parts.push(sit.q);
+    return {
+      q: parts.join(" ").trim(),
+      open: sit && sit.flag === "open" ? "1" : "",
+      parking: sit && sit.flag === "parking" ? "1" : "",
+    };
+  }, [situation, category]);
+
+  // 검색 실행
+  const discover = useCallback(async (where) => {
+    setView("results"); setLoading(true); setError(""); setResults(null); setMapSel(0); setResultTab("all");
+    setLastCond({ situation, category });
+    const { q, open, parking } = buildParams();
+    try {
+      let j;
+      if (where.type === "geo") {
+        j = await getJSON(`/api/nearby?lat=${where.lat}&lng=${where.lng}` + (q ? `&q=${encodeURIComponent(q)}` : "") + (open ? "&open=1" : "") + (parking ? "&parking=1" : ""));
+      } else {
+        j = await getJSON(`/api/search?region=${encodeURIComponent(where.region)}` + (q ? `&q=${encodeURIComponent(q)}` : "") + (open ? "&open=1" : "") + (parking ? "&parking=1" : ""));
+        setRecent((r) => [where.region, ...r.filter((x) => x !== where.region)].slice(0, 8));
+      }
+      setResults(j);
+      const first = ["sikgaek", "sumi", "google"].find((k) => (j[k] || []).length > 0);
+      setResultTab(first ? (["sikgaek", "sumi"].includes(first) ? first : "google") : "all");
+    } catch (e) { setError(e.message); }
+    finally { setLoading(false); }
+  }, [buildParams, situation, category, setLastCond, setRecent]);
+
+  // 현재 위치로 탐색
+  const discoverHere = useCallback(() => {
+    if (geo) discover({ type: "geo", lat: geo.lat, lng: geo.lng });
+    else usePrecise((g) => discover({ type: "geo", lat: g.lat, lng: g.lng }));
+  }, [geo, discover, usePrecise]);
+
+  const submitSearch = useCallback(() => {
+    const t = query.trim();
+    if (t) discover({ type: "region", region: t });
+    else discoverHere();
+  }, [query, discover, discoverHere]);
+
+  // 필터 칩 변경 시, 이미 결과 화면이면 자동 재검색
+  const onSituation = (v) => { setSituation(v); };
+  const onCategory = (v) => { setCategory(v); };
+
+  const openDetail = (p) => setDetail(p);
+
+  // 결과 탭 목록
+  const tabList = useMemo(() => {
+    if (!results) return [];
+    if (resultTab === "all") {
+      const seen = new Set(); const out = [];
+      ["sikgaek", "sumi", "google"].forEach((k) => (results[k] || []).forEach((p) => { const id = pid(p); if (!seen.has(id)) { seen.add(id); out.push(p); } }));
+      return out;
+    }
+    return results[resultTab] || [];
+  }, [results, resultTab]);
+
+  const TABS = results ? [
+    { key: "all", label: "전체", n: (() => { const s = new Set(); ["sikgaek", "sumi", "google"].forEach((k) => (results[k] || []).forEach((p) => s.add(pid(p)))); return s.size; })() },
+    { key: "sikgaek", label: "식객", n: (results.sikgaek || []).length },
+    { key: "sumi", label: "수요미식회", n: (results.sumi || []).length },
+    { key: "google", label: "구글평점", n: (results.google || []).length },
+  ] : [];
+
+  const cardProps = { saved: false, onToggleSave: toggleSave, onOpen: openDetail };
+  const renderCard = (p) => <PlaceCard key={pid(p)} place={p} saved={isSaved(p)} onToggleSave={toggleSave} onOpen={openDetail} />;
+
+  return (
+    <div className="min-h-screen">
+      <Header locLabel={geo?.label} approx={geo?.approx} onPrecise={() => usePrecise()} savedCount={saved.length} onOpenSaved={() => setSavedOpen(true)} />
+
+      <main className="max-w-content mx-auto px-4 sm:px-6 lg:px-8 pb-16">
+        {/* ── 핵심 탐색 영역 ── */}
+        <section className="pt-6 sm:pt-8">
+          <h1 className="text-[28px] sm:text-[34px] font-extrabold text-ink tracking-tight">오늘 어디 갈까요?</h1>
+          <p className="text-sub mt-1 text-[15px]">내 주변 카페와 맛집을 상황과 취향에 맞게 찾아드려요.</p>
+          <div className="mt-4 max-w-2xl">
+            <SearchBar value={query} onChange={setQuery} onSubmit={submitSearch} onUseLocation={discoverHere} locStatus={locStatus} />
+            {locStatus === "failed" && (
+              <p className="mt-2 text-[13px] text-warn">현재 위치를 확인하지 못했어요. 위 검색창에 <b>지역명</b>을 입력하면 바로 찾아볼 수 있어요.</p>
+            )}
+            {geo?.approx && locStatus !== "failed" && (
+              <p className="mt-2 text-[13px] text-sub"><b className="text-ink">{geo.label}</b> 근처 기준이에요. <button onClick={() => usePrecise()} className="text-brand font-semibold underline underline-offset-2">정확한 위치로</button></p>
+            )}
+            {recent.length > 0 && (
+              <div className="mt-3 flex items-center gap-2 flex-wrap">
+                <span className="text-xs text-sub">최근 검색</span>
+                {recent.slice(0, 6).map((r) => (
+                  <button key={r} onClick={() => { setQuery(r); discover({ type: "region", region: r }); }}
+                    className="text-xs px-2.5 h-7 rounded-full bg-white border border-line text-ink/80 hover:border-brand/50 inline-flex items-center gap-1">
+                    {r}<span onClick={(e) => { e.stopPropagation(); setRecent((x) => x.filter((v) => v !== r)); }} className="text-sub hover:text-ink">{I.x2("w-3 h-3")}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </section>
+
+        {/* ── 필터 ── */}
+        <div className="mt-6">
+          <Filters situation={situation} setSituation={onSituation} category={category} setCategory={onCategory} />
+          {(situation || category) && (
+            <div className="mt-3">
+              <button onClick={discoverHere}
+                className="h-11 px-5 rounded-xl bg-brand text-white font-bold text-sm hover:bg-brandDark transition inline-flex items-center gap-1.5">
+                {I.search("w-4 h-4")} 이 조건으로 내 주변 찾기
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* ── 인기 지역 바로가기 ── */}
+        {view === "home" && (
+          <div className="mt-5 flex items-center gap-2 flex-wrap">
+            <span className="text-xs text-sub">인기 지역</span>
+            {HOT_REGIONS.map((r) => (
+              <button key={r} onClick={() => { setQuery(r); discover({ type: "region", region: r }); }}
+                className="text-sm px-3 h-8 rounded-full bg-white border border-line text-ink/80 hover:border-brand/50 transition">{r}</button>
+            ))}
+          </div>
+        )}
+
+        {/* ── 홈 미리보기 ── */}
+        {view === "home" && (
+          <div>
+            {!home ? (
+              <div className="mt-7">
+                <div className="h-6 w-40 shimmer rounded mb-3" />
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">{[0, 1, 2, 3].map((i) => <SkeletonCard key={i} />)}</div>
+              </div>
+            ) : (
+              <>
+                <Section title="지금 이 근처 인기 맛집" subtitle={`${geo?.label || ""} 기준 가까운 순`} items={home.popular} saved={false} onToggleSave={toggleSave} onOpen={openDetail} isSavedFn />
+                <Section title="가까운 평점 높은 카페" items={home.cafes} onToggleSave={toggleSave} onOpen={openDetail} />
+                <Section title="주변 방송 맛집 · 수요미식회" subtitle="가까운 순" items={home.sumi} onToggleSave={toggleSave} onOpen={openDetail} />
+                <Section title="주변 방송 맛집 · 식객" items={home.sikgaek} onToggleSave={toggleSave} onOpen={openDetail} />
+                {saved.length > 0 && <Section title="내가 저장한 장소" items={saved.slice(0, 8)} onToggleSave={toggleSave} onOpen={openDetail} />}
+                {home.popular?.length === 0 && home.cafes?.length === 0 && (
+                  <p className="mt-8 text-center text-sub text-sm">이 근처 추천을 불러오지 못했어요. 위에서 지역을 검색해 보세요.</p>
+                )}
+              </>
+            )}
+          </div>
+        )}
+
+        {/* ── 결과 화면 ── */}
+        {view === "results" && (
+          <div className="mt-6">
+            <div className="flex items-center justify-between gap-2 mb-4 flex-wrap">
+              <button onClick={() => setView("home")} className="text-sm text-sub hover:text-ink font-medium">← 홈으로</button>
+              <div className="inline-flex rounded-xl border border-line overflow-hidden">
+                <button onClick={() => setResultMode("list")} aria-pressed={resultMode === "list"}
+                  className={"px-3 h-9 text-sm font-semibold inline-flex items-center gap-1 " + (resultMode === "list" ? "bg-ink text-white" : "bg-white text-sub")}>{I.list("w-4 h-4")}목록</button>
+                <button onClick={() => setResultMode("map")} aria-pressed={resultMode === "map"}
+                  className={"px-3 h-9 text-sm font-semibold inline-flex items-center gap-1 " + (resultMode === "map" ? "bg-ink text-white" : "bg-white text-sub")}>{I.map("w-4 h-4")}지도</button>
+              </div>
+            </div>
+
+            {/* 탭 */}
+            {results && (
+              <div className="flex gap-2 overflow-x-auto no-scrollbar mb-4">
+                {TABS.map((t) => (
+                  <button key={t.key} onClick={() => { setResultTab(t.key); setMapSel(0); }} aria-pressed={resultTab === t.key}
+                    className={"shrink-0 px-3.5 h-9 rounded-full text-sm font-semibold border transition " +
+                      (resultTab === t.key ? "bg-brand text-white border-brand" : "bg-white text-ink/70 border-line hover:border-brand/50")}>
+                    {t.label} <span className={resultTab === t.key ? "opacity-90" : "text-sub"}>{t.n}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {loading && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">{[0, 1, 2, 3, 4, 5].map((i) => <SkeletonCard key={i} />)}</div>
+            )}
+            {!loading && error && <ErrorState msg={error} onRetry={discoverHere} />}
+            {!loading && !error && results && (
+              resultTab === "google" && results.googleError ? (
+                <ErrorState msg={"구글 조회 실패: " + results.googleError} onRetry={discoverHere} />
+              ) : tabList.length === 0 ? (
+                <EmptyState onReset={() => { setSituation(null); setCategory(null); discoverHere(); }} onWiden={() => { setSituation(null); setCategory(null); setResultTab("google"); }} />
+              ) : resultMode === "map" ? (
+                <MapPanel items={tabList} selected={mapSel} onSelect={setMapSel} />
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {tabList.map(renderCard)}
+                </div>
+              )
+            )}
+          </div>
+        )}
+      </main>
+
+      {/* 상세 / 저장 패널 / 토스트 */}
+      {detail && <DetailSheet place={detail} saved={isSaved(detail)} onToggleSave={toggleSave} onClose={() => setDetail(null)} onToast={setToast} />}
+      <SavedPanel open={savedOpen} saved={saved} onClose={() => setSavedOpen(false)} onOpenPlace={(p) => { setSavedOpen(false); setDetail(p); }} onToggleSave={toggleSave} />
+      {toast && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[60] bg-ink text-white text-sm font-medium px-4 py-2.5 rounded-full shadow-lg rise">{toast}</div>
+      )}
+
+      <footer className="border-t border-line py-8 text-center text-xs text-sub">
+        식객·수요미식회는 큐레이션 데이터 · 사진·평점·거리·영업정보는 구글/네이버 실시간
+      </footer>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+</body>
+</html>

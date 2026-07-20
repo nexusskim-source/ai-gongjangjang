@@ -1,0 +1,11 @@
+{
+  "name": "yeogi-eottae",
+  "version": "1.0.0",
+  "private": true,
+  "description": "내 주변 맛집/카페 발견 앱 (식객·수요미식회·구글평점)",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "engines": { "node": ">=18" }
+}

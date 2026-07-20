@@ -1,0 +1,15 @@
+{
+  "builds": [
+    {
+      "src": "api/[...path].js",
+      "use": "@vercel/node",
+      "config": { "includeFiles": ["core.js", "places.json", "curated_geo.json"] }
+    },
+    { "src": "index.html", "use": "@vercel/static" }
+  ],
+  "routes": [
+    { "src": "/api/(.*)", "dest": "/api/[...path].js" },
+    { "src": "/(favicon\\.ico)", "status": 404 },
+    { "src": "/(.*)", "dest": "/index.html" }
+  ]
+}

@@ -1,0 +1,7 @@
+node_modules/
+.vercel/
+curated_geo.cache.json
+*.log
+
+.vercel
+.env*
